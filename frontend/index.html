@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BERTopic Word Clouds</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    img { margin: 10px; border: 1px solid #ccc; }
+  </style>
+</head>
+<body>
+  <h1>BERTopic Word Cloud Viewer</h1>
+  <input type="text" id="urlInput" placeholder="Enter URL" size="50" />
+  <button onclick="generate()">Generate</button>
+  <div id="output"></div>
+
+  <script>
+    async function generate() {
+      const url = document.getElementById('urlInput').value;
+      const res = await fetch('http://localhost:3000/process/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url })
+      });
+      const data = await res.json();
+      const output = document.getElementById('output');
+      output.innerHTML = '';
+      for (const [topic, img] of Object.entries(data.wordclouds)) {
+        const div = document.createElement('div');
+        div.innerHTML = `<h3>Topic ${topic}</h3><img src="data:image/png;base64,${img}" width="400" />`;
+        output.appendChild(div);
+      }
+    }
+  </script>
+</body>
+</html>
