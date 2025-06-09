@@ -16,11 +16,13 @@ class URLRequest(BaseModel):
 async def process_url(data: URLRequest):
     raw_text = scrape_url(data.url)
     docs = clean_text(raw_text)
-    # topics, _ = model_topics(docs)
-    # wordclouds = generate_wordclouds(topics)
+    topics, _ = model_topics(docs)
+    wordclouds = generate_wordclouds_html(topics)
 
     # return {"topics": topics, "wordclouds": wordclouds}
-    return {"cleaned_text": docs}
+    # return {"cleaned_text": docs}
+    return {"wordclouds": wordclouds, "cleaned_text": docs, "topics": topics}
+
 
 @app.get("/")
 async def root():
@@ -62,6 +64,6 @@ async def process_url(data: URLRequest):
     # wordclouds = generate_wordclouds(topics)
     wordclouds = generate_wordclouds_html(topics)
 
-
     return {"wordclouds": wordclouds}
+    # return {"wordclouds": wordclouds, "cleaned_text": docs}
     # return {"cleaned_text": docs}
