@@ -2,8 +2,8 @@
 from bertopic import BERTopic
 from sentence_transformers import SentenceTransformer
 
-# model = SentenceTransformer("all-MiniLM-L6-v2")
-model = SentenceTransformer('./ml_models/all-MiniLM-L6-v2')
+model = SentenceTransformer("all-MiniLM-L6-v2")
+# model = SentenceTransformer('./ml_models/all-MiniLM-L6-v2')
 topic_model = BERTopic()
 
 def model_topics(docs):
