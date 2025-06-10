@@ -77,3 +77,9 @@ async def process_url(data: URLRequest):
     return {"wordclouds": wordclouds}
     # return {"wordclouds": wordclouds, "cleaned_text": docs}
     # return {"cleaned_text": docs}
+
+if __name__ == "__main__":
+    import uvicorn
+    import os
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("app.main:app", host="0.0.0.0", port=port)
