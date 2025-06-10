@@ -1,38 +1,55 @@
-# Put this at the VERY TOP of app/main.py
-print("=== SCRIPT STARTED ===")
+# # Put this at the VERY TOP of app/main.py
+# print("=== SCRIPT STARTED ===")
 
-import sys
-import os
+# import sys
+# import os
 
-print(f"Python path: {sys.path}")
-print(f"Current directory: {os.getcwd()}")
-print(f"PORT env var: {os.environ.get('PORT', 'NOT SET')}")
+# print(f"Python path: {sys.path}")
+# print(f"Current directory: {os.getcwd()}")
+# print(f"PORT env var: {os.environ.get('PORT', 'NOT SET')}")
 
-try:
-    from fastapi import FastAPI
-    print("✓ FastAPI imported")
-except Exception as e:
-    print(f"✗ FastAPI import failed: {e}")
-    sys.exit(1)
+# try:
+#     from fastapi import FastAPI
+#     print("✓ FastAPI imported")
+# except Exception as e:
+#     print(f"✗ FastAPI import failed: {e}")
+#     sys.exit(1)
 
-try:    
-    import uvicorn
-    print("✓ Uvicorn imported")
-except Exception as e:
-    print(f"✗ Uvicorn import failed: {e}")
-    sys.exit(1)
+# try:    
+#     import uvicorn
+#     print("✓ Uvicorn imported")
+# except Exception as e:
+#     print(f"✗ Uvicorn import failed: {e}")
+#     sys.exit(1)
 
-print("=== CREATING APP ===")
-app = FastAPI()
-print("✓ App created")
+# print("=== CREATING APP ===")
+# app = FastAPI()
+# print("✓ App created")
 
-@app.get("/")
-def root():
-    return {"message": "Hello World"}
+# @app.get("/")
+# def root():
+#     return {"message": "Hello World"}
 
-print("✓ Routes defined")
+# print("✓ Routes defined")
+####################################
+# from fastapi import FastAPI
+# from fastapi.middleware.cors import CORSMiddleware
+# from pydantic import BaseModel, HttpUrl
+# print("✓ FastAPI imports successful")
 
-##testing...##
+# from scraper import scrape_url
+# print("✓ scraper import successful")
+
+# from preprocess import clean_text
+# print("✓ preprocess import successful")
+
+# from topic_model import model_topics
+# print("✓ topic_model import successful")
+
+# from visualization import generate_wordclouds, test_wordcloud_generation, generate_wordclouds_html
+# print("✓ visualization import successful")
+###############################################
+# ##testing...##
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, HttpUrl
@@ -41,7 +58,7 @@ from preprocess import clean_text
 from topic_model import model_topics
 from visualization import generate_wordclouds, test_wordcloud_generation, generate_wordclouds_html
 
-# app = FastAPI()
+app = FastAPI()
 
 # Add CORS middleware immediately after creating the app
 app.add_middleware(
