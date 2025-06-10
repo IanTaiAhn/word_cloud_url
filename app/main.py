@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, HttpUrl
 from app.scraper import scrape_url
 from app.preprocess import clean_text
@@ -6,6 +7,15 @@ from app.topic_model import model_topics
 from app.visualization import generate_wordclouds, test_wordcloud_generation, generate_wordclouds_html
 
 app = FastAPI()
+
+# Add CORS middleware immediately after creating the app
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://iantaiahn.github.io"],  # Replace with your actual GitHub Pages URL
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Step 1: Define a request model
 class URLRequest(BaseModel):
