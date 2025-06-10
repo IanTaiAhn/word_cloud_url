@@ -1,3 +1,37 @@
+# Put this at the VERY TOP of app/main.py
+print("=== SCRIPT STARTED ===")
+
+import sys
+import os
+
+print(f"Python path: {sys.path}")
+print(f"Current directory: {os.getcwd()}")
+print(f"PORT env var: {os.environ.get('PORT', 'NOT SET')}")
+
+try:
+    from fastapi import FastAPI
+    print("✓ FastAPI imported")
+except Exception as e:
+    print(f"✗ FastAPI import failed: {e}")
+    sys.exit(1)
+
+try:    
+    import uvicorn
+    print("✓ Uvicorn imported")
+except Exception as e:
+    print(f"✗ Uvicorn import failed: {e}")
+    sys.exit(1)
+
+print("=== CREATING APP ===")
+app = FastAPI()
+print("✓ App created")
+
+@app.get("/")
+def root():
+    return {"message": "Hello World"}
+
+print("✓ Routes defined")
+##testing...##
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, HttpUrl
@@ -78,25 +112,4 @@ async def process_url(data: URLRequest):
     # return {"wordclouds": wordclouds, "cleaned_text": docs}
     # return {"cleaned_text": docs}
 
-try:
-    import uvicorn
-    from fastapi import FastAPI
-    print("Imports successful")
-    
-    app = FastAPI()
-    print("FastAPI app created")
-    
-    @app.get("/")
-    def root():
-        return {"message": "Hello World"}
-    
-    if __name__ == "__main__":
-        import uvicorn
-        import os
-        port = int(os.environ.get("PORT", 8001))
-        uvicorn.run("app.main:app", host="0.0.0.0", port=port)
-        
-except Exception as e:
-    print(f"Error: {e}")
-    import traceback
-    traceback.print_exc()
+
