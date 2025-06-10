@@ -1,6 +1,3 @@
-# Text cleaning & lemmatization nltk or spacy, prolly spacy
-
-# app/preprocess.py
 import spacy
 import re
 
