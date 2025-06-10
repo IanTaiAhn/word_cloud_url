@@ -78,10 +78,25 @@ async def process_url(data: URLRequest):
     # return {"wordclouds": wordclouds, "cleaned_text": docs}
     # return {"cleaned_text": docs}
 
-if __name__ == "__main__":
+try:
     import uvicorn
-    import os
-    port = int(os.environ.get("PORT", 8000))
-    print(f"PORT env var: {os.environ.get('PORT', 'NOT SET')}")
-    print(f"Starting server on 0.0.0.0:{port}")
-    uvicorn.run("app.main:app", host="0.0.0.0", port=port)
+    from fastapi import FastAPI
+    print("Imports successful")
+    
+    app = FastAPI()
+    print("FastAPI app created")
+    
+    @app.get("/")
+    def root():
+        return {"message": "Hello World"}
+    
+    if __name__ == "__main__":
+        import uvicorn
+        import os
+        port = int(os.environ.get("PORT", 8001))
+        uvicorn.run("app.main:app", host="0.0.0.0", port=port)
+        
+except Exception as e:
+    print(f"Error: {e}")
+    import traceback
+    traceback.print_exc()
