@@ -2,252 +2,273 @@ from wordcloud import WordCloud
 import base64
 from io import BytesIO
 
-def generate_wordclouds(topics_dict):
-    """Generate word clouds for topics and return as base64 encoded images"""
-    clouds = {}
+# Alternative: Return HTML word clouds instead of images
+def generate_wordclouds_html(topics):
+    """
+    Generate simple HTML word clouds (lighter weight than images)
+    """
+    html_clouds = {}
     
-    for topic_id, words in topics_dict.items():
-        try:
-            # Skip outlier topic (-1) if present
-            if topic_id == -1:
-                continue
+    for topic_id, word_scores in topics.items():
+        # Create HTML with scaled font sizes
+        html_words = []
+        max_score = max(score for word, score in word_scores) if word_scores else 1
+        
+        for word, score in word_scores[:20]:  # Top 20 words
+            # Scale font size based on score
+            font_size = int(12 + (score / max_score) * 24)  # 12px to 36px
+            opacity = 0.6 + (score / max_score) * 0.4  # 0.6 to 1.0
             
-            # Create frequency dictionary from topic words
-            # Handle both formats: [(word, score), ...] or {word: score}
-            if isinstance(words, list) and len(words) > 0:
-                if isinstance(words[0], tuple):
-                    freq = {word: score for word, score in words}
-                else:
-                    # If it's just a list of words, give them equal weight
-                    freq = {word: 1.0 for word in words}
-            elif isinstance(words, dict):
-                freq = words
-            else:
-                print(f"Skipping topic {topic_id}: invalid format")
-                continue
-            
-            # Skip if no words
-            if not freq:
-                print(f"Skipping topic {topic_id}: no words found")
-                continue
-            
-            # Create WordCloud
-            wc = WordCloud(
-                width=600, 
-                height=400, 
-                background_color='white',
-                max_words=50,
-                relative_scaling=0.5,
-                colormap='viridis'
-            ).generate_from_frequencies(freq)
-            
-            # Convert to PIL Image
-            image = wc.to_image()
-            
-            # Save to BytesIO buffer
-            buf = BytesIO()
-            image.save(buf, format='PNG')
-            buf.seek(0)
-            
-            # Encode to base64
-            encoded = base64.b64encode(buf.getvalue()).decode()
-            clouds[topic_id] = encoded
-            
-        except Exception as e:
-            print(f"Error generating wordcloud for topic {topic_id}: {e}")
-            continue
+            html_words.append(
+                f'<span style="font-size: {font_size}px; opacity: {opacity}; '
+                f'margin: 2px; color: hsl({hash(word) % 360}, 70%, 50%);">{word}</span>'
+            )
+        
+        html_clouds[f'topic_{topic_id}'] = f'<div style="line-height: 1.8;">{" ".join(html_words)}</div>'
     
-    return clouds
-
-def generate_wordclouds_html(topics_dict, output_file='wordclouds.html', title='Topic Word Clouds'):
-    """Generate word clouds and embed them in HTML for web viewing"""
-    import base64
-    from io import BytesIO
-    from wordcloud import WordCloud
+    return html_clouds
+def generate_full_html_page(url, wordclouds, topics, num_documents):
+    """
+    Generate complete HTML page with embedded word clouds
+    """
+    # Create topic cards HTML
+    topic_cards = ""
+    for topic_key, wordcloud_html in wordclouds.items():
+        topic_id = topic_key.split('_')[1]  # Extract number from 'topic_0'
+        
+        # Get top 3 words for title
+        topic_words = topics.get(int(topic_id), [])
+        top_words = [word for word, score in topic_words[:3]]
+        title = " • ".join(top_words) if top_words else f"Topic {topic_id}"
+        
+        topic_cards += f"""
+        <div class="topic-card">
+            <h3>Topic {topic_id}: {title}</h3>
+            <div class="wordcloud">
+                {wordcloud_html}
+            </div>
+        </div>
+        """
     
-    # Start building HTML content
-    html_content = f"""
+    # Complete HTML page
+    html_page = f"""
     <!DOCTYPE html>
     <html lang="en">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>{title}</title>
+        <title>Topic Analysis Results - {url}</title>
         <style>
             body {{
-                font-family: Arial, sans-serif;
-                margin: 20px;
-                background-color: #f5f5f5;
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                line-height: 1.6;
+                margin: 0;
+                padding: 20px;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                min-height: 100vh;
+                color: #333;
             }}
+            
             .container {{
                 max-width: 1200px;
                 margin: 0 auto;
-                background-color: white;
-                padding: 20px;
-                border-radius: 10px;
-                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                background: rgba(255, 255, 255, 0.95);
+                border-radius: 15px;
+                padding: 30px;
+                box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+                backdrop-filter: blur(10px);
             }}
-            h1 {{
+            
+            .header {{
                 text-align: center;
-                color: #333;
-                margin-bottom: 30px;
-            }}
-            .topic-section {{
                 margin-bottom: 40px;
-                padding: 20px;
-                border: 1px solid #ddd;
-                border-radius: 8px;
-                background-color: #fafafa;
+                padding-bottom: 20px;
+                border-bottom: 2px solid #eee;
             }}
-            .topic-title {{
-                font-size: 24px;
-                font-weight: bold;
-                margin-bottom: 15px;
+            
+            .header h1 {{
                 color: #2c3e50;
-                text-align: center;
+                margin-bottom: 10px;
+                font-size: 2.5em;
+                font-weight: 300;
             }}
-            .wordcloud-image {{
-                display: block;
-                margin: 0 auto;
-                max-width: 100%;
-                height: auto;
-                border: 2px solid #ddd;
+            
+            .url-info {{
+                background: #f8f9fa;
+                padding: 15px;
                 border-radius: 8px;
-                box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+                margin-bottom: 20px;
+                border-left: 4px solid #667eea;
             }}
-            .no-topics {{
+            
+            .url-info strong {{
+                color: #495057;
+            }}
+            
+            .stats {{
+                display: flex;
+                justify-content: center;
+                gap: 30px;
+                margin-bottom: 30px;
+                flex-wrap: wrap;
+            }}
+            
+            .stat-item {{
+                background: linear-gradient(45deg, #667eea, #764ba2);
+                color: white;
+                padding: 15px 25px;
+                border-radius: 10px;
                 text-align: center;
-                color: #666;
-                font-style: italic;
-                padding: 40px;
+                box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            }}
+            
+            .stat-number {{
+                font-size: 2em;
+                font-weight: bold;
+                display: block;
+            }}
+            
+            .topics-grid {{
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+                gap: 25px;
+                margin-top: 30px;
+            }}
+            
+            .topic-card {{
+                background: white;
+                border-radius: 12px;
+                padding: 25px;
+                box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+                border: 1px solid #e9ecef;
+                transition: transform 0.3s ease, box-shadow 0.3s ease;
+            }}
+            
+            .topic-card:hover {{
+                transform: translateY(-5px);
+                box-shadow: 0 15px 35px rgba(0,0,0,0.15);
+            }}
+            
+            .topic-card h3 {{
+                color: #2c3e50;
+                margin-bottom: 15px;
+                padding-bottom: 10px;
+                border-bottom: 2px solid #667eea;
+                font-size: 1.3em;
+            }}
+            
+            .wordcloud {{
+                text-align: center;
+                padding: 20px;
+                background: linear-gradient(45deg, #f8f9fa, #e9ecef);
+                border-radius: 8px;
+                min-height: 120px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                flex-wrap: wrap;
+            }}
+            
+            .wordcloud span {{
+                display: inline-block;
+                padding: 2px 6px;
+                margin: 2px;
+                border-radius: 4px;
+                background: rgba(255, 255, 255, 0.8);
+                transition: all 0.3s ease;
+                cursor: default;
+            }}
+            
+            .wordcloud span:hover {{
+                transform: scale(1.1);
+                background: rgba(255, 255, 255, 1);
+                box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            }}
+            
+            .footer {{
+                text-align: center;
+                margin-top: 40px;
+                padding-top: 20px;
+                border-top: 1px solid #eee;
+                color: #6c757d;
+            }}
+            
+            .new-analysis {{
+                text-align: center;
+                margin-top: 30px;
+            }}
+            
+            .btn {{
+                background: linear-gradient(45deg, #667eea, #764ba2);
+                color: white;
+                padding: 12px 30px;
+                border: none;
+                border-radius: 25px;
+                font-size: 1.1em;
+                cursor: pointer;
+                text-decoration: none;
+                display: inline-block;
+                transition: all 0.3s ease;
+                box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            }}
+            
+            .btn:hover {{
+                transform: translateY(-2px);
+                box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+            }}
+            
+            @media (max-width: 768px) {{
+                .topics-grid {{
+                    grid-template-columns: 1fr;
+                }}
+                
+                .container {{
+                    padding: 20px;
+                    margin: 10px;
+                }}
+                
+                .stats {{
+                    flex-direction: column;
+                    align-items: center;
+                }}
             }}
         </style>
     </head>
     <body>
         <div class="container">
-            <h1>{title}</h1>
-    """
-    
-    topics_processed = 0
-    
-    for topic_id, words in topics_dict.items():
-        try:
-            # Skip outlier topic (-1) if present
-            if topic_id == -1:
-                continue
-            
-            # Create frequency dictionary from topic words
-            # Handle both formats: [(word, score), ...] or {word: score}
-            if isinstance(words, list) and len(words) > 0:
-                if isinstance(words[0], tuple):
-                    freq = {word: score for word, score in words}
-                else:
-                    # If it's just a list of words, give them equal weight
-                    freq = {word: 1.0 for word in words}
-            elif isinstance(words, dict):
-                freq = words
-            else:
-                print(f"Skipping topic {topic_id}: invalid format")
-                continue
-            
-            # Skip if no words
-            if not freq:
-                print(f"Skipping topic {topic_id}: no words found")
-                continue
-            
-            # Create WordCloud
-            wc = WordCloud(
-                width=800, 
-                height=500, 
-                background_color='white',
-                max_words=50,
-                relative_scaling=0.5,
-                colormap='viridis',
-                margin=10
-            ).generate_from_frequencies(freq)
-            
-            # Convert to PIL Image
-            image = wc.to_image()
-            
-            # Save to BytesIO buffer
-            buf = BytesIO()
-            image.save(buf, format='PNG')
-            buf.seek(0)
-            
-            # Encode to base64
-            encoded = base64.b64encode(buf.getvalue()).decode()
-            
-            # Add topic section to HTML
-            html_content += f"""
-            <div class="topic-section">
-                <div class="topic-title">Topic {topic_id}</div>
-                <img src="data:image/png;base64,{encoded}" 
-                     alt="Word Cloud for Topic {topic_id}" 
-                     class="wordcloud-image">
+            <div class="header">
+                <h1>📊 Topic Analysis Results</h1>
             </div>
-            """
             
-            topics_processed += 1
+            <div class="url-info">
+                <strong>Analyzed URL:</strong> <a href="{url}" target="_blank">{url}</a>
+            </div>
             
-        except Exception as e:
-            print(f"Error generating wordcloud for topic {topic_id}: {e}")
-            continue
-    
-    # Handle case where no topics were processed
-    if topics_processed == 0:
-        html_content += """
-        <div class="no-topics">
-            <p>No word clouds could be generated from the provided topics.</p>
-        </div>
-        """
-    
-    # Close HTML
-    html_content += """
+            <div class="stats">
+                <div class="stat-item">
+                    <span class="stat-number">{len(wordclouds)}</span>
+                    <span>Topics Found</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-number">{num_documents}</span>
+                    <span>Text Segments</span>
+                </div>
+            </div>
+            
+            <div class="topics-grid">
+                {topic_cards}
+            </div>
+            
+            <div class="new-analysis">
+                <a href="/" class="btn">🔍 Analyze Another URL</a>
+            </div>
+            
+            <div class="footer">
+                <p>Generated with lightweight topic modeling • FastAPI + TF-IDF + K-means</p>
+            </div>
         </div>
     </body>
     </html>
     """
     
-    # Save HTML file
-    try:
-        with open(output_file, 'w', encoding='utf-8') as f:
-            f.write(html_content)
-        print(f"Word clouds saved to {output_file}")
-        print(f"Successfully processed {topics_processed} topics")
-        return output_file
-    except Exception as e:
-        print(f"Error saving HTML file: {e}")
-        return None
-
-
-# Example usage and testing
-def test_wordcloud_generation():
-    """Test function with sample data"""
-    # Sample topics data in BERTopic format
-    sample_topics = {
-        0: [('machine', 0.5), ('learning', 0.4), ('algorithm', 0.3), ('data', 0.2)],
-        1: [('python', 0.6), ('programming', 0.4), ('code', 0.3), ('software', 0.2)],
-        2: [('analysis', 0.5), ('statistics', 0.4), ('research', 0.3), ('study', 0.2)]
-    }
-    
-    try:
-        clouds = generate_wordclouds(sample_topics)
-        print(f"Successfully generated {len(clouds)} wordclouds")
-        for topic_id in clouds:
-            print(f"Topic {topic_id}: {len(clouds[topic_id])} characters (base64)")
-        return clouds
-    except Exception as e:
-        print(f"Test failed: {e}")
-
-
-# def generate_wordclouds(topics_dict):
-#     clouds = {}
-#     for topic_id, words in topics_dict.items():
-#         freq = {word[0]: word[1] for word in words}
-#         wc = WordCloud(width=600, height=400, background_color='white').generate_from_frequencies(freq)
-#         buf = BytesIO()
-#         wc.save(buf, format='PNG')
-#         encoded = base64.b64encode(buf.getvalue()).decode()
-#         clouds[topic_id] = encoded
-#     return clouds
-        return None
+    return html_page
