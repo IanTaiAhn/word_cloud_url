@@ -8,6 +8,18 @@ from preprocess import clean_text
 from topic_model import model_topics
 from visualization import generate_wordclouds_html, generate_full_html_page
 
+# Set up logging configuration
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler()  # This will output to console/Render logs
+    ]
+)
+
+# Create logger instance
+logger = logging.getLogger(__name__)
+
 app = FastAPI()
 
 # Add CORS middleware immediately after creating the app
@@ -218,7 +230,7 @@ async def home():
                 button.disabled = true;
                 
                 try {
-                    const response = await fetch('/process/', {
+                    const response = await fetch('/process_new/', {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({url: url})
