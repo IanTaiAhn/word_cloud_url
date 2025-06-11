@@ -2,9 +2,29 @@ import requests
 from bs4 import BeautifulSoup
 
 def scrape_url(url):
-    # response = requests.get(url, verify=False) #TODO Remove this verify=False in production
-    response = requests.get(url)
+    headers = {
+        'User-Agent': (
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+            'AppleWebKit/537.36 (KHTML, like Gecko) '
+            'Chrome/114.0.0.0 Safari/537.36'
+        ),
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    }
+
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()  # Raises HTTPError for bad responses (4xx/5xx)
+    except requests.exceptions.RequestException as e:
+        print(f"Request failed: {e}")
+        return ""
+
     soup = BeautifulSoup(response.text, 'html.parser')
-    [s.extract() for s in soup(['script', 'style'])]
-    text = ' '.join(p.get_text() for p in soup.find_all(['p', 'article', 'main']))
+
+    # Remove script and style elements
+    for s in soup(['script', 'style']):
+        s.decompose()
+
+    # Extract text
+    text = ' '.join(p.get_text(strip=True) for p in soup.find_all(['p', 'article', 'main']))
     return text
