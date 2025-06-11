@@ -21,8 +21,13 @@ fi
 if [[ ! -d "$CHROMEDRIVER_DIR" ]]; then
   echo "🔽 Downloading ChromeDriver"
   mkdir -p "$CHROMEDRIVER_DIR"
+
   CHROME_VERSION=$("$CHROME_DIR/opt/google/chrome/google-chrome" --version | grep -oP '\d+' | head -1)
+  echo "➤ Chrome version detected: $CHROME_VERSION"
+
   CHROMEDRIVER_VERSION=$(wget -qO- "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_$CHROME_VERSION")
+  echo "➤ ChromeDriver version to download: $CHROMEDRIVER_VERSION"
+
   wget -O chromedriver.zip "https://chromedriver.storage.googleapis.com/${CHROMEDRIVER_VERSION}/chromedriver_linux64.zip"
   unzip chromedriver.zip -d "$CHROMEDRIVER_DIR"
   rm chromedriver.zip
