@@ -1,59 +1,33 @@
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-from selenium.common.exceptions import WebDriverException, TimeoutException
+from selenium.common.exceptions import TimeoutException
 from bs4 import BeautifulSoup
 
 def scrape_url(url):
-    # Setup headless Chrome options
     chrome_options = Options()
     chrome_options.add_argument("--headless")
-    chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--window-size=1920x1080")
-    chrome_options.add_argument(
-        "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
+    chrome_options.binary_location = "/opt/render/project/.render/chrome/opt/google/chrome/google-chrome"
+
+    driver = webdriver.Chrome(
+        executable_path="/opt/render/project/.render/chromedriver/chromedriver",
+        options=chrome_options
     )
 
     try:
-        # Initialize the browser
-        driver = webdriver.Chrome(options=chrome_options)
         driver.set_page_load_timeout(15)
-
-        # Attempt to fetch the page
         driver.get(url)
         html = driver.page_source
+    except TimeoutException:
+        return "[Timeout] Page failed to load"
+    finally:
         driver.quit()
 
-        # Parse and clean the HTML
-        soup = BeautifulSoup(html, 'html.parser')
-        for s in soup(['script', 'style']):
-            s.decompose()
-
-        # Extract meaningful text
-        text = ' '.join(
-            p.get_text(strip=True) for p in soup.find_all(['p', 'article', 'main'])
-        )
-
-        if not text.strip():
-            raise ValueError("No meaningful content extracted from page.")
-
-        return text
-
-    except TimeoutException:
-        print(f"[Timeout] Failed to load: {url}")
-    except WebDriverException as e:
-        print(f"[WebDriver Error] {e}")
-    except Exception as e:
-        print(f"[Unexpected Error] {e}")
-    finally:
-        try:
-            driver.quit()
-        except:
-            pass  # driver might already be closed
-
-    return ""  # Return empty string on failure
+    soup = BeautifulSoup(html, "html.parser")
+    for s in soup(["script", "style"]):
+        s.decompose()
+    return ' '.join(p.get_text(strip=True) for p in soup.find_all(["p", "article", "main"]))
 
 
 # def scrape_url(url):
