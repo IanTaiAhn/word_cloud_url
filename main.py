@@ -80,7 +80,9 @@ class URLRequest(BaseModel):
 async def process_url_html(data: URLRequest):
     raw_text = scrape_url(data.url)
     docs = clean_text(raw_text)
-    topics, _ = model_topics(docs, n_clusters=5)
+    # topics, _ = model_topics(docs, n_clusters=5)
+    n_clusters = min(5, len(docs))  # Never exceed number of documents
+    topics, _ = model_topics(docs, n_clusters=n_clusters)
     wordclouds = generate_wordclouds_html(topics)
     
     return {
@@ -96,7 +98,8 @@ async def process_url_html(data: URLRequest):
         # Your existing processing
         raw_text = scrape_url(data.url)
         docs = clean_text(raw_text)
-        topics, _ = model_topics(docs, n_clusters=5)
+        n_clusters = min(5, len(docs))  # Never exceed number of documents
+        topics, _ = model_topics(docs, n_clusters=n_clusters)
         wordclouds = generate_wordclouds_html(topics)
         
         # Generate complete HTML page
