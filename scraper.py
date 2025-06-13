@@ -12,6 +12,10 @@ import os
 from webdriver_manager.chrome import ChromeDriverManager
 import undetected_chromedriver as uc
 import gc
+import psutil
+import tracemalloc
+import sys
+from functools import wraps
 
 logger = logging.getLogger(__name__)
 
@@ -331,247 +335,619 @@ logger = logging.getLogger(__name__)
 #         logger.error(f"❌ Error parsing HTML: {e}")
 #         return f"[Error] Failed to parse HTML: {str(e)}"
 
+logger = logging.getLogger(__name__)
 
-def scrape_url(url, headless=True, timeout=30, max_content_length=15000):
-    """
-    Memory-optimized version of the web scraper using undetected-chrome
+
+#########SUPPOSEDLY ULTRA LIGHTWEIGHT VERSION NOW##################
+# Global variables for memory tracking
+_initial_memory = None
+_peak_memory = 0
+
+def get_memory_usage():
+    """Get current memory usage in MB"""
+    process = psutil.Process(os.getpid())
+    memory_info = process.memory_info()
+    return {
+        'rss_mb': memory_info.rss / 1024 / 1024,  # Resident Set Size (actual RAM usage)
+        'vms_mb': memory_info.vms / 1024 / 1024,  # Virtual Memory Size
+        'percent': process.memory_percent(),       # Percentage of system RAM
+        'available_mb': psutil.virtual_memory().available / 1024 / 1024,
+        'total_system_mb': psutil.virtual_memory().total / 1024 / 1024
+    }
+
+def log_memory_usage(stage=""):
+    """Log current memory usage with optional stage description"""
+    global _peak_memory
     
-    Args:
-        url (str): URL to scrape
-        headless (bool): Run browser in headless mode (default: True)
-        timeout (int): Page load timeout in seconds (default: 30)
-        max_content_length (int): Maximum content length to return (default: 15000)
+    memory = get_memory_usage()
+    current_rss = memory['rss_mb']
     
-    Returns:
-        str: Extracted text content or error message
+    if current_rss > _peak_memory:
+        _peak_memory = current_rss
+    
+    if _initial_memory:
+        increase = current_rss - _initial_memory
+        logger.info(f"🧠 RAM {stage}: {current_rss:.1f}MB (+{increase:.1f}MB) | "
+                   f"Peak: {_peak_memory:.1f}MB | "
+                   f"System: {memory['percent']:.1f}% | "
+                   f"Available: {memory['available_mb']:.0f}MB")
+    else:
+        logger.info(f"🧠 RAM {stage}: {current_rss:.1f}MB | "
+                   f"System: {memory['percent']:.1f}% | "
+                   f"Available: {memory['available_mb']:.0f}MB")
+
+def memory_monitor(func):
+    """Decorator to monitor memory usage of functions"""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        func_name = func.__name__
+        log_memory_usage(f"BEFORE {func_name}")
+        
+        try:
+            result = func(*args, **kwargs)
+            log_memory_usage(f"AFTER {func_name}")
+            return result
+        except Exception as e:
+            log_memory_usage(f"ERROR in {func_name}")
+            raise
+    return wrapper
+
+def check_memory_limit(limit_mb=500):
+    """Check if we're approaching memory limit"""
+    memory = get_memory_usage()
+    if memory['rss_mb'] > limit_mb:
+        logger.warning(f"⚠️ MEMORY LIMIT EXCEEDED: {memory['rss_mb']:.1f}MB > {limit_mb}MB")
+        return False
+    elif memory['rss_mb'] > limit_mb * 0.8:  # 80% warning
+        logger.warning(f"⚠️ MEMORY WARNING: {memory['rss_mb']:.1f}MB (approaching {limit_mb}MB limit)")
+    return True
+
+def force_cleanup():
+    """Aggressive memory cleanup"""
+    logger.info("🧹 Forcing aggressive memory cleanup...")
+    
+    # Multiple garbage collection passes
+    for i in range(3):
+        collected = gc.collect()
+        logger.info(f"🗑️ GC pass {i+1}: collected {collected} objects")
+    
+    log_memory_usage("after aggressive cleanup")
+
+@memory_monitor
+def create_driver(headless=True):
+    """Create Chrome driver with ultra-minimal memory footprint"""
+    log_memory_usage("before driver creation")
+    
+    chrome_options = uc.ChromeOptions()
+    
+    # Ultra-minimal Chrome configuration for maximum memory savings
+    essential_args = [
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--disable-software-rasterizer",
+        "--window-size=800,600",  # Even smaller window
+        "--disable-extensions",
+        "--disable-plugins",
+        "--disable-images",
+        "--disable-javascript",  # Disable JS if possible for your use case
+        "--disable-web-security",
+        
+        # Extreme memory optimization
+        "--memory-pressure-off",
+        "--max_old_space_size=128",  # Very restrictive V8 heap
+        "--disable-background-timer-throttling",
+        "--disable-renderer-backgrounding",
+        "--disable-backgrounding-occluded-windows",
+        "--disable-features=TranslateUI,VizDisplayCompositor,AudioServiceOutOfProcess",
+        "--disable-ipc-flooding-protection",
+        "--disable-background-networking",
+        "--disable-sync",
+        "--disable-default-apps",
+        "--no-first-run",
+        "--disable-client-side-phishing-detection",
+        "--disable-component-update",
+        "--disable-domain-reliability",
+        "--disable-background-mode",
+        
+        # Zero cache
+        "--disk-cache-size=1",
+        "--media-cache-size=1",
+        "--aggressive-cache-discard",
+        "--disable-application-cache",
+        
+        # Process limits
+        "--single-process",  # Use single process (saves RAM but less stable)
+        "--disable-site-isolation-trials",
+        
+        # Minimal user agent
+        "--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
+    ]
+    
+    for arg in essential_args:
+        chrome_options.add_argument(arg)
+    
+    if headless:
+        chrome_options.add_argument("--headless=new")  # Use new headless mode
+    
+    logger.info("🚀 Creating ultra-minimal Chrome driver...")
+    
+    try:
+        driver = uc.Chrome(
+            options=chrome_options,
+            headless=False,  # Let the argument handle headless
+            version_main=None,
+            driver_executable_path=None,
+            use_subprocess=False,  # Use same process to save memory
+            debug=False
+        )
+        
+        log_memory_usage("after driver creation")
+        return driver
+        
+    except Exception as e:
+        log_memory_usage("driver creation failed")
+        raise
+
+@memory_monitor  
+def load_page(driver, url, timeout=20):
+    """Load page with memory monitoring"""
+    log_memory_usage("before page load")
+    
+    driver.set_page_load_timeout(timeout)
+    driver.implicitly_wait(2)
+    
+    # Single attempt load - no retries to save memory
+    try:
+        driver.get(url)
+        log_memory_usage("after page load")
+        
+        # Minimal wait
+        try:
+            WebDriverWait(driver, 3).until(EC.presence_of_element_located((By.TAG_NAME, "body")))
+        except TimeoutException:
+            pass
+            
+        return True
+        
+    except TimeoutException:
+        logger.warning("⏰ Page load timeout - stopping load")
+        try:
+            driver.execute_script("window.stop();")
+        except:
+            pass
+        return True  # Continue anyway
+        
+    except Exception as e:
+        log_memory_usage("page load error")
+        raise
+
+@memory_monitor
+def extract_html(driver):
+    """Extract HTML with memory monitoring"""
+    log_memory_usage("before HTML extraction")
+    
+    html = driver.page_source
+    html_size_mb = len(html) / 1024 / 1024
+    
+    logger.info(f"📄 HTML extracted: {html_size_mb:.2f}MB ({len(html)} chars)")
+    log_memory_usage("after HTML extraction")
+    
+    return html
+
+@memory_monitor
+def parse_content(html, max_length=10000):
+    """Parse HTML content with aggressive memory management"""
+    log_memory_usage("before HTML parsing")
+    
+    if not html or len(html) < 50:
+        return "[Error] No HTML content"
+    
+    try:
+        # Use html.parser to avoid lxml memory overhead
+        soup = BeautifulSoup(html, "html.parser")
+        
+        # Clear HTML immediately
+        html = None
+        log_memory_usage("after soup creation")
+        
+        # Aggressive cleanup - remove everything except essential content
+        remove_tags = ["script", "style", "nav", "header", "footer", "aside", 
+                      "iframe", "noscript", "form", "svg", "canvas", "video", 
+                      "audio", "img", "picture", "source", "track", "embed", 
+                      "object", "applet", "link", "meta"]
+        
+        for tag in remove_tags:
+            for element in soup(tag):
+                element.decompose()
+        
+        log_memory_usage("after tag removal")
+        
+        # Extract only paragraph text - simplest approach
+        paragraphs = soup.find_all(['p', 'h1', 'h2', 'h3'])
+        
+        content_parts = []
+        current_length = 0
+        
+        for p in paragraphs:
+            text = p.get_text(strip=True)
+            if text and len(text) > 5:  # Only meaningful text
+                if current_length + len(text) > max_length:
+                    break
+                content_parts.append(text)
+                current_length += len(text)
+        
+        # Clear soup
+        soup = None
+        log_memory_usage("after content extraction")
+        
+        content = ' '.join(content_parts)
+        
+        # Final cleanup
+        force_cleanup()
+        
+        return content[:max_length] if content else "[Error] No readable content"
+        
+    except Exception as e:
+        log_memory_usage("HTML parsing error")
+        return f"[Error] Parsing failed: {str(e)}"
+
+def scrape_url(url, headless=True, timeout=20, max_content_length=8000):
     """
+    Ultra-memory-efficient web scraper with detailed RAM monitoring
+    """
+    global _initial_memory, _peak_memory
+    
+    # Start memory tracking
+    _initial_memory = get_memory_usage()['rss_mb']
+    _peak_memory = _initial_memory
+    
+    logger.info(f"🔍 Starting scrape: {url}")
+    log_memory_usage("INITIAL")
+    
+    # Check if we have enough memory to start
+    if not check_memory_limit(400):  # Conservative limit
+        return "[Error] Insufficient memory to start scraping"
+    
     driver = None
     try:
-        logger.info(f"🔍 Starting to scrape: {url}")
-        
         # Validate URL
         if not url or not url.startswith(('http://', 'https://')):
             return f"[Error] Invalid URL: {url}"
         
-        # Configure memory-optimized Chrome options
-        chrome_options = uc.ChromeOptions()
+        # Create driver
+        driver = create_driver(headless)
         
-        # Basic options
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--disable-dev-shm-usage")
-        chrome_options.add_argument("--disable-gpu")
-        chrome_options.add_argument("--window-size=1366,768")  # Smaller window
-        chrome_options.add_argument("--disable-extensions")
-        chrome_options.add_argument("--disable-plugins")
-        chrome_options.add_argument("--disable-images")
-        chrome_options.add_argument("--disable-web-security")
-        chrome_options.add_argument("--allow-running-insecure-content")
+        if not check_memory_limit(450):
+            return "[Error] Memory limit exceeded after driver creation"
         
-        # Memory optimization flags
-        chrome_options.add_argument("--memory-pressure-off")
-        chrome_options.add_argument("--max_old_space_size=512")  # Limit V8 heap
-        chrome_options.add_argument("--disable-background-timer-throttling")
-        chrome_options.add_argument("--disable-renderer-backgrounding")
-        chrome_options.add_argument("--disable-backgrounding-occluded-windows")
-        chrome_options.add_argument("--disable-features=TranslateUI,VizDisplayCompositor")
-        chrome_options.add_argument("--disable-ipc-flooding-protection")
-        chrome_options.add_argument("--disable-background-networking")
-        chrome_options.add_argument("--disable-sync")
-        chrome_options.add_argument("--disable-default-apps")
-        chrome_options.add_argument("--no-first-run")
-        chrome_options.add_argument("--disable-client-side-phishing-detection")
-        chrome_options.add_argument("--disable-component-update")
-        chrome_options.add_argument("--disable-domain-reliability")
+        # Load page
+        if not load_page(driver, url, timeout):
+            return "[Error] Failed to load page"
+            
+        if not check_memory_limit(480):
+            logger.warning("⚠️ Memory critical - extracting content quickly")
         
-        # Reduce cache and storage
-        chrome_options.add_argument("--disk-cache-size=0")
-        chrome_options.add_argument("--media-cache-size=0")
-        chrome_options.add_argument("--aggressive-cache-discard")
+        # Extract HTML
+        html = extract_html(driver)
         
-        # Stealth options
-        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-        chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36")
-        
-        logger.info("🚀 Initializing memory-optimized Chrome driver...")
-        
-        # Use undetected-chrome driver
-        driver = uc.Chrome(
-            options=chrome_options,
-            headless=headless,
-            version_main=None,
-            driver_executable_path=None,
-            use_subprocess=True,
-            debug=False
-        )
-        
-        # Reduced stealth measures (only essential ones)
-        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-        
-        # Set timeouts
-        driver.set_page_load_timeout(timeout)
-        driver.implicitly_wait(3)  # Reduced wait time
-        
-        logger.info(f"📡 Loading page: {url}")
-        
-        # Simplified retry logic - max 2 attempts to save memory
-        MAX_RETRIES = 2
-        page_loaded = False
-        
-        for attempt in range(MAX_RETRIES):
-            try:
-                logger.info(f"🔄 Attempt {attempt + 1}/{MAX_RETRIES}")
-                
-                if attempt == 0:
-                    driver.get(url)
-                else:
-                    # Early stop strategy only
-                    driver.set_page_load_timeout(15)
-                    try:
-                        driver.get(url)
-                    except TimeoutException:
-                        driver.execute_script("window.stop();")
-                        time.sleep(1)  # Reduced wait
-                
-                page_loaded = True
-                break
-                
-            except TimeoutException:
-                if attempt < MAX_RETRIES - 1:
-                    time.sleep(2)  # Reduced retry delay
-                    continue
-                else:
-                    try:
-                        driver.execute_script("window.stop();")
-                        page_loaded = True
-                        break
-                    except:
-                        pass
-                        
-            except WebDriverException as e:
-                if attempt < MAX_RETRIES - 1:
-                    logger.warning(f"🔁 Error on attempt {attempt + 1}: {str(e)[:50]}")
-                    time.sleep(2)
-                else:
-                    raise
-        
-        if not page_loaded:
-            return f"[Error] Failed to load page after {MAX_RETRIES} attempts: {url}"
-        
-        # Simplified wait strategy
-        try:
-            WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.TAG_NAME, "body")))
-        except TimeoutException:
-            pass  # Continue anyway
-        
-        # Minimal additional wait
-        time.sleep(1)
-        
-        logger.info("📄 Getting page source...")
-        html = driver.page_source
-        
-        # Early validation and memory cleanup
-        if not html or len(html) < 100:
-            if driver:
-                driver.quit()
-            return f"[Error] Page returned minimal content"
-        
-        # Close driver immediately after getting HTML to free memory
+        # Close driver immediately
         driver.quit()
         driver = None
+        log_memory_usage("after driver quit")
         
-        logger.info(f"✅ Page loaded. HTML length: {len(html)} characters")
+        # Force cleanup
+        force_cleanup()
         
-        # Force garbage collection
-        gc.collect()
+        # Parse content
+        content = parse_content(html, max_content_length)
+        
+        # Clear HTML
+        html = None
+        force_cleanup()
+        
+        log_memory_usage("FINAL")
+        logger.info(f"✅ Scrape complete. Peak memory: {_peak_memory:.1f}MB")
+        
+        return content
         
     except Exception as e:
+        log_memory_usage("ERROR")
+        logger.error(f"❌ Scraping error: {e}")
+        return f"[Error] {str(e)}"
+        
+    finally:
         if driver:
             try:
                 driver.quit()
+                log_memory_usage("driver cleanup in finally")
             except:
                 pass
-        logger.error(f"❌ Error during page load: {e}")
-        return f"[Error] {str(e)}"
+        
+        # Final aggressive cleanup
+        force_cleanup()
 
-    # Memory-efficient HTML parsing
-    try:
-        logger.info("🍲 Parsing HTML with BeautifulSoup...")
+# # Utility function to monitor system resources
+# def log_system_resources():
+#     """Log comprehensive system resource information"""
+#     memory = psutil.virtual_memory()
+#     cpu_percent = psutil.cpu_percent(interval=1)
+    
+#     logger.info(f"💻 SYSTEM RESOURCES:")
+#     logger.info(f"   RAM: {memory.used/1024/1024:.0f}MB / {memory.total/1024/1024:.0f}MB "
+#                f"({memory.percent:.1f}% used)")
+#     logger.info(f"   Available RAM: {memory.available/1024/1024:.0f}MB")
+#     logger.info(f"   CPU: {cpu_percent:.1f}%")
+    
+#     # Process-specific info
+#     process = psutil.Process(os.getpid())
+#     logger.info(f"   This process: {process.memory_info().rss/1024/1024:.1f}MB "
+#                f"({process.memory_percent():.1f}% of system)")
+
+# # Example usage with comprehensive monitoring
+# if __name__ == "__main__":
+#     # Setup logging
+#     logging.basicConfig(
+#         level=logging.INFO,
+#         format='%(asctime)s - %(levelname)s - %(message)s'
+#     )
+    
+#     # Log initial system state
+#     log_system_resources()
+    
+#     # Test scraping with monitoring
+#     test_url = "https://example.com"
+#     result = scrape_url(test_url, headless=True, max_content_length=5000)
+    
+#     print(f"Result length: {len(result)} characters")
+#     print(f"First 200 chars: {result[:200]}")
+    
+#     # Final system state
+#     log_system_resources()
+
+
+
+##########memory saving code or so it said...###############
+# def scrape_url(url, headless=True, timeout=30, max_content_length=15000):
+#     """
+#     Memory-optimized version of the web scraper using undetected-chrome
+    
+#     Args:
+#         url (str): URL to scrape
+#         headless (bool): Run browser in headless mode (default: True)
+#         timeout (int): Page load timeout in seconds (default: 30)
+#         max_content_length (int): Maximum content length to return (default: 15000)
+    
+#     Returns:
+#         str: Extracted text content or error message
+#     """
+#     driver = None
+#     try:
+#         logger.info(f"🔍 Starting to scrape: {url}")
         
-        # Use lxml parser for better memory efficiency if available, fallback to html.parser
-        try:
-            soup = BeautifulSoup(html, "lxml")
-        except:
-            soup = BeautifulSoup(html, "html.parser")
+#         # Validate URL
+#         if not url or not url.startswith(('http://', 'https://')):
+#             return f"[Error] Invalid URL: {url}"
         
-        # Clear the original HTML from memory
-        html = None
-        gc.collect()
+#         # Configure memory-optimized Chrome options
+#         chrome_options = uc.ChromeOptions()
         
-        # Aggressively remove unwanted elements first
-        unwanted_tags = ["script", "style", "nav", "header", "footer", "aside", 
-                        "iframe", "noscript", "form", "svg", "canvas", "video", "audio"]
-        for tag in unwanted_tags:
-            for element in soup(tag):
-                element.decompose()
+#         # Basic options
+#         chrome_options.add_argument("--no-sandbox")
+#         chrome_options.add_argument("--disable-dev-shm-usage")
+#         chrome_options.add_argument("--disable-gpu")
+#         chrome_options.add_argument("--window-size=1366,768")  # Smaller window
+#         chrome_options.add_argument("--disable-extensions")
+#         chrome_options.add_argument("--disable-plugins")
+#         chrome_options.add_argument("--disable-images")
+#         chrome_options.add_argument("--disable-web-security")
+#         chrome_options.add_argument("--allow-running-insecure-content")
         
-        # Remove unwanted classes/IDs (simplified patterns)
-        unwanted_patterns = ['ad', 'advertisement', 'cookie', 'popup', 'modal', 'sidebar']
+#         # Memory optimization flags
+#         chrome_options.add_argument("--memory-pressure-off")
+#         chrome_options.add_argument("--max_old_space_size=512")  # Limit V8 heap
+#         chrome_options.add_argument("--disable-background-timer-throttling")
+#         chrome_options.add_argument("--disable-renderer-backgrounding")
+#         chrome_options.add_argument("--disable-backgrounding-occluded-windows")
+#         chrome_options.add_argument("--disable-features=TranslateUI,VizDisplayCompositor")
+#         chrome_options.add_argument("--disable-ipc-flooding-protection")
+#         chrome_options.add_argument("--disable-background-networking")
+#         chrome_options.add_argument("--disable-sync")
+#         chrome_options.add_argument("--disable-default-apps")
+#         chrome_options.add_argument("--no-first-run")
+#         chrome_options.add_argument("--disable-client-side-phishing-detection")
+#         chrome_options.add_argument("--disable-component-update")
+#         chrome_options.add_argument("--disable-domain-reliability")
         
-        for element in soup.find_all(attrs={"class": lambda x: x and any(
-            pattern in ' '.join(x).lower() for pattern in unwanted_patterns
-        )}):
-            element.decompose()
+#         # Reduce cache and storage
+#         chrome_options.add_argument("--disk-cache-size=0")
+#         chrome_options.add_argument("--media-cache-size=0")
+#         chrome_options.add_argument("--aggressive-cache-discard")
         
-        # Streamlined content extraction
-        content_text = ""
+#         # Stealth options
+#         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+#         chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36")
         
-        # Primary content selectors (reduced list)
-        content_selectors = [
-            'main', 'article', '[role="main"]', '.content', '.main-content', 
-            '.article-content', '#content'
-        ]
+#         logger.info("🚀 Initializing memory-optimized Chrome driver...")
         
-        main_content = None
-        for selector in content_selectors:
-            elements = soup.select(selector)
-            if elements:
-                main_content = max(elements, key=lambda x: len(x.get_text(strip=True)))
-                break
+#         # Use undetected-chrome driver
+#         driver = uc.Chrome(
+#             options=chrome_options,
+#             headless=headless,
+#             version_main=None,
+#             driver_executable_path=None,
+#             use_subprocess=True,
+#             debug=False
+#         )
         
-        if main_content and len(main_content.get_text(strip=True)) > 100:
-            content_text = main_content.get_text(separator=' ', strip=True)
-        else:
-            # Simplified fallback - just get paragraph content
-            paragraphs = soup.find_all(['p', 'h1', 'h2', 'h3'])
-            content_text = ' '.join([
-                p.get_text(strip=True) 
-                for p in paragraphs 
-                if p.get_text(strip=True) and len(p.get_text(strip=True)) > 10
-            ])
+#         # Reduced stealth measures (only essential ones)
+#         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         
-        # Clear soup from memory
-        soup = None
-        gc.collect()
+#         # Set timeouts
+#         driver.set_page_load_timeout(timeout)
+#         driver.implicitly_wait(3)  # Reduced wait time
         
-        # Clean and limit content length early
-        if content_text:
-            content_text = ' '.join(content_text.split())  # Clean whitespace
+#         logger.info(f"📡 Loading page: {url}")
+        
+#         # Simplified retry logic - max 2 attempts to save memory
+#         MAX_RETRIES = 2
+#         page_loaded = False
+        
+#         for attempt in range(MAX_RETRIES):
+#             try:
+#                 logger.info(f"🔄 Attempt {attempt + 1}/{MAX_RETRIES}")
+                
+#                 if attempt == 0:
+#                     driver.get(url)
+#                 else:
+#                     # Early stop strategy only
+#                     driver.set_page_load_timeout(15)
+#                     try:
+#                         driver.get(url)
+#                     except TimeoutException:
+#                         driver.execute_script("window.stop();")
+#                         time.sleep(1)  # Reduced wait
+                
+#                 page_loaded = True
+#                 break
+                
+#             except TimeoutException:
+#                 if attempt < MAX_RETRIES - 1:
+#                     time.sleep(2)  # Reduced retry delay
+#                     continue
+#                 else:
+#                     try:
+#                         driver.execute_script("window.stop();")
+#                         page_loaded = True
+#                         break
+#                     except:
+#                         pass
+                        
+#             except WebDriverException as e:
+#                 if attempt < MAX_RETRIES - 1:
+#                     logger.warning(f"🔁 Error on attempt {attempt + 1}: {str(e)[:50]}")
+#                     time.sleep(2)
+#                 else:
+#                     raise
+        
+#         if not page_loaded:
+#             return f"[Error] Failed to load page after {MAX_RETRIES} attempts: {url}"
+        
+#         # Simplified wait strategy
+#         try:
+#             WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.TAG_NAME, "body")))
+#         except TimeoutException:
+#             pass  # Continue anyway
+        
+#         # Minimal additional wait
+#         time.sleep(1)
+        
+#         logger.info("📄 Getting page source...")
+#         html = driver.page_source
+        
+#         # Early validation and memory cleanup
+#         if not html or len(html) < 100:
+#             if driver:
+#                 driver.quit()
+#             return f"[Error] Page returned minimal content"
+        
+#         # Close driver immediately after getting HTML to free memory
+#         driver.quit()
+#         driver = None
+        
+#         logger.info(f"✅ Page loaded. HTML length: {len(html)} characters")
+        
+#         # Force garbage collection
+#         gc.collect()
+        
+#     except Exception as e:
+#         if driver:
+#             try:
+#                 driver.quit()
+#             except:
+#                 pass
+#         logger.error(f"❌ Error during page load: {e}")
+#         return f"[Error] {str(e)}"
+
+#     # Memory-efficient HTML parsing
+#     try:
+#         logger.info("🍲 Parsing HTML with BeautifulSoup...")
+        
+#         # Use lxml parser for better memory efficiency if available, fallback to html.parser
+#         try:
+#             soup = BeautifulSoup(html, "lxml")
+#         except:
+#             soup = BeautifulSoup(html, "html.parser")
+        
+#         # Clear the original HTML from memory
+#         html = None
+#         gc.collect()
+        
+#         # Aggressively remove unwanted elements first
+#         unwanted_tags = ["script", "style", "nav", "header", "footer", "aside", 
+#                         "iframe", "noscript", "form", "svg", "canvas", "video", "audio"]
+#         for tag in unwanted_tags:
+#             for element in soup(tag):
+#                 element.decompose()
+        
+#         # Remove unwanted classes/IDs (simplified patterns)
+#         unwanted_patterns = ['ad', 'advertisement', 'cookie', 'popup', 'modal', 'sidebar']
+        
+#         for element in soup.find_all(attrs={"class": lambda x: x and any(
+#             pattern in ' '.join(x).lower() for pattern in unwanted_patterns
+#         )}):
+#             element.decompose()
+        
+#         # Streamlined content extraction
+#         content_text = ""
+        
+#         # Primary content selectors (reduced list)
+#         content_selectors = [
+#             'main', 'article', '[role="main"]', '.content', '.main-content', 
+#             '.article-content', '#content'
+#         ]
+        
+#         main_content = None
+#         for selector in content_selectors:
+#             elements = soup.select(selector)
+#             if elements:
+#                 main_content = max(elements, key=lambda x: len(x.get_text(strip=True)))
+#                 break
+        
+#         if main_content and len(main_content.get_text(strip=True)) > 100:
+#             content_text = main_content.get_text(separator=' ', strip=True)
+#         else:
+#             # Simplified fallback - just get paragraph content
+#             paragraphs = soup.find_all(['p', 'h1', 'h2', 'h3'])
+#             content_text = ' '.join([
+#                 p.get_text(strip=True) 
+#                 for p in paragraphs 
+#                 if p.get_text(strip=True) and len(p.get_text(strip=True)) > 10
+#             ])
+        
+#         # Clear soup from memory
+#         soup = None
+#         gc.collect()
+        
+#         # Clean and limit content length early
+#         if content_text:
+#             content_text = ' '.join(content_text.split())  # Clean whitespace
             
-            # Truncate early to save memory
-            if len(content_text) > max_content_length:
-                content_text = content_text[:max_content_length] + "..."
-        else:
-            return "[Error] No readable content found"
+#             # Truncate early to save memory
+#             if len(content_text) > max_content_length:
+#                 content_text = content_text[:max_content_length] + "..."
+#         else:
+#             return "[Error] No readable content found"
         
-        logger.info(f"✅ Content extracted. Length: {len(content_text)} characters")
-        return content_text
+#         logger.info(f"✅ Content extracted. Length: {len(content_text)} characters")
+#         return content_text
         
-    except Exception as e:
-        logger.error(f"❌ Error parsing HTML: {e}")
-        return f"[Error] Failed to parse HTML: {str(e)}"
-    finally:
-        # Final cleanup
-        gc.collect()
+#     except Exception as e:
+#         logger.error(f"❌ Error parsing HTML: {e}")
+#         return f"[Error] Failed to parse HTML: {str(e)}"
+#     finally:
+#         # Final cleanup
+#         gc.collect()
 
 
 # # Additional utility function for batch processing with memory management
