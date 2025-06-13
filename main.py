@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, HttpUrl
 import logging
-from scraper import scrape_url
+from scraper import scrape_url_local
 from preprocess import clean_text
 from topic_model import model_topics
 from visualization import generate_wordclouds_html, generate_full_html_page
@@ -45,7 +45,7 @@ async def process_url_html_new(data: URLRequest):
         
         # Step 1: Scraping
         logger.info("📡 Step 1: Starting web scraping...")
-        raw_text = scrape_url(url_str, headless=True, timeout=30)
+        raw_text = scrape_url_local(url_str, headless=True, timeout=30, ignore_ssl=True)
         logger.info(f"✅ Scraping completed. Text length: {len(raw_text)} characters")
         
         # Check if scraping failed
@@ -120,92 +120,6 @@ async def process_url_html_new(data: URLRequest):
         </html>
         """
         return HTMLResponse(content=error_html, status_code=400)
-
-# @app.post("/process_local/", response_class=HTMLResponse)
-# async def process_url_html_new(data: URLRequest):
-#     try:
-#         # Convert Pydantic HttpUrl to string
-#         url_str = str(data.url)
-#         logger.info(f"🚀 Starting to process URL: {url_str}")
-        
-#         # Step 1: Scraping
-#         logger.info("📡 Step 1: Starting web scraping...")
-#         raw_text = scrape_url_local(url_str, headless=True, timeout=30, ignore_ssl=True)  # Pass string, not HttpUrl object
-#         logger.info(f"✅ Scraping completed. Text length: {len(raw_text)} characters")
-        
-#         # Check if scraping failed
-#         if raw_text.startswith("[Timeout]") or raw_text.startswith("[Error]"):
-#             logger.error(f"❌ Scraping failed: {raw_text}")
-#             raise Exception(f"Scraping failed: {raw_text}")
-        
-#         # Step 2: Text cleaning
-#         logger.info("🧹 Step 2: Cleaning text...")
-#         docs = clean_text(raw_text)
-#         logger.info(f"✅ Text cleaning completed. Number of documents: {len(docs)}")
-        
-#         if not docs or len(docs) == 0:
-#             raise Exception("No valid documents found after cleaning")
-        
-#         # Step 3: Dynamic topic modeling based on document count
-#         logger.info("🔍 Step 3: Running topic modeling...")
-        
-#         # Calculate appropriate number of clusters
-#         n_docs = len(docs)
-#         if n_docs == 1:
-#             n_clusters = 1
-#             logger.info(f"Single document detected. Using {n_clusters} cluster.")
-#         elif n_docs < 5:
-#             n_clusters = n_docs
-#             logger.info(f"Few documents ({n_docs}). Using {n_clusters} clusters.")
-#         else:
-#             n_clusters = min(5, n_docs)
-#             logger.info(f"Multiple documents ({n_docs}). Using {n_clusters} clusters.")
-        
-#         topics, _ = model_topics(docs, n_clusters=n_clusters)
-#         logger.info(f"✅ Topic modeling completed. Number of topics: {len(topics) if topics else 0}")
-        
-#         if not topics:
-#             raise Exception("No topics generated from the text")
-        
-#         # Step 4: Generate wordclouds
-#         logger.info("☁️ Step 4: Generating wordclouds...")
-#         wordclouds = generate_wordclouds_html(topics)
-#         logger.info(f"✅ Wordclouds generated. Number of wordclouds: {len(wordclouds) if wordclouds else 0}")
-        
-#         # Step 5: Generate HTML page
-#         logger.info("📄 Step 5: Generating HTML page...")
-#         html_page = generate_full_html_page(
-#             url=url_str,  # Pass string version
-#             wordclouds=wordclouds,
-#             topics=topics,
-#             num_documents=len(docs)
-#         )
-#         logger.info("✅ HTML page generation completed")
-        
-#         return HTMLResponse(content=html_page, status_code=200)
-        
-#     except Exception as e:
-#         # Log the full error details
-#         url_str = str(data.url) if hasattr(data, 'url') else 'unknown'
-#         logger.error(f"❌ Error processing URL {url_str}: {str(e)}")
-#         logger.error(f"Error type: {type(e).__name__}")
-#         import traceback
-#         logger.error(f"Full traceback: {traceback.format_exc()}")
-        
-#         error_html = f"""
-#         <!DOCTYPE html>
-#         <html>
-#         <head><title>Error</title></head>
-#         <body style="font-family: Arial; padding: 20px; text-align: center;">
-#             <h1>❌ Error Processing URL</h1>
-#             <p>Sorry, we couldn't process the URL: <strong>{url_str}</strong></p>
-#             <p><strong>Error:</strong> {str(e)}</p>
-#             <a href="/" style="color: #007bff;">← Try Another URL</a>
-#         </body>
-#         </html>
-#         """
-#         return HTMLResponse(content=error_html, status_code=400)
-
 
 # Optional: Add a simple form page for URL input
 @app.get("/", response_class=HTMLResponse)
