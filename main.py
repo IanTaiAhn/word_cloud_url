@@ -45,7 +45,7 @@ async def process_url_html_new(data: URLRequest):
         
         # Step 1: Scraping
         logger.info("📡 Step 1: Starting web scraping...")
-        raw_text = scrape_url(url_str)  # Pass string, not HttpUrl object
+        raw_text = scrape_url(url_str, headless=True, timeout=30)
         logger.info(f"✅ Scraping completed. Text length: {len(raw_text)} characters")
         
         # Check if scraping failed
