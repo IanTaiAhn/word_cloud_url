@@ -419,28 +419,29 @@ def create_driver(headless=True):
     log_memory_usage("before driver creation")
     
     chrome_options = uc.ChromeOptions()
-    
-    # Ultra-minimal Chrome configuration for maximum memory savings
+    # Better alternatives:
     essential_args = [
+        # Core stability (keep these)
         "--no-sandbox",
-        "--disable-dev-shm-usage",
+        "--disable-dev-shm-usage", 
         "--disable-gpu",
         "--disable-software-rasterizer",
-        "--window-size=800,600",  # Even smaller window
+
+        # Window size - make responsive to content
+        "--window-size=1024,768",  # Slightly larger for better rendering
         "--disable-extensions",
         "--disable-plugins",
         "--disable-images",
-        "--disable-javascript",  # Disable JS if possible for your use case
-        "--disable-web-security",
-        
-        # Extreme memory optimization
+
+        # Memory optimization (improved)
         "--memory-pressure-off",
-        "--max_old_space_size=128",  # Very restrictive V8 heap
+        "--max_old_space_size=512",  # Less restrictive
         "--disable-background-timer-throttling",
         "--disable-renderer-backgrounding",
         "--disable-backgrounding-occluded-windows",
-        "--disable-features=TranslateUI,VizDisplayCompositor,AudioServiceOutOfProcess",
-        "--disable-ipc-flooding-protection",
+
+        # Better feature disabling
+        "--disable-features=TranslateUI,VizDisplayCompositor,AudioServiceOutOfProcess,MediaRouter,DialMediaRouteProvider",
         "--disable-background-networking",
         "--disable-sync",
         "--disable-default-apps",
@@ -449,20 +450,71 @@ def create_driver(headless=True):
         "--disable-component-update",
         "--disable-domain-reliability",
         "--disable-background-mode",
-        
-        # Zero cache
-        "--disk-cache-size=1",
-        "--media-cache-size=1",
-        "--aggressive-cache-discard",
+
+        # Cache optimization (better approach)
+        "--disk-cache-size=0",  # 0 instead of 1
+        "--media-cache-size=0",
         "--disable-application-cache",
-        
-        # Process limits
-        "--single-process",  # Use single process (saves RAM but less stable)
+        "--disable-offline-load-stale-cache",
+
+        # Process management (safer than single-process)
+        "--renderer-process-limit=1",
         "--disable-site-isolation-trials",
-        
-        # Minimal user agent
-        "--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
+
+        # Anti-detection improvements for undetected-chromedriver
+        "--disable-blink-features=AutomationControlled",
+        "--exclude-switches=enable-automation,enable-logging",
+        "--disable-logging",
+        "--log-level=3",
+        "--silent",
+
+        # User agent (keep simple)
+        "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     ]
+    ##Old settings...
+    # # Ultra-minimal Chrome configuration for maximum memory savings
+    # essential_args = [
+    #     "--no-sandbox",
+    #     "--disable-dev-shm-usage",
+    #     "--disable-gpu",
+    #     "--disable-software-rasterizer",
+    #     "--window-size=800,600",  # Even smaller window
+    #     "--disable-extensions",
+    #     "--disable-plugins",
+    #     "--disable-images",
+    #     # "--disable-javascript",  # Disable JS if possible for your use case
+    #     # "--disable-web-security",
+        
+    #     # Extreme memory optimization
+    #     "--memory-pressure-off",
+    #     "--max_old_space_size=512",  # Very restrictive V8 heap
+    #     "--disable-background-timer-throttling",
+    #     "--disable-renderer-backgrounding",
+    #     "--disable-backgrounding-occluded-windows",
+    #     "--disable-features=TranslateUI,VizDisplayCompositor,AudioServiceOutOfProcess",
+    #     "--disable-ipc-flooding-protection",
+    #     "--disable-background-networking",
+    #     "--disable-sync",
+    #     "--disable-default-apps",
+    #     "--no-first-run",
+    #     "--disable-client-side-phishing-detection",
+    #     "--disable-component-update",
+    #     "--disable-domain-reliability",
+    #     "--disable-background-mode",
+        
+    #     # Zero cache
+    #     "--disk-cache-size=1",
+    #     "--media-cache-size=1",
+    #     "--aggressive-cache-discard",
+    #     "--disable-application-cache",
+        
+    #     # Process limits
+    #     # "--single-process",  # Use single process (saves RAM but less stable)
+    #     "--disable-site-isolation-trials",
+        
+    #     # Minimal user agent
+    #     "--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
+    # ]
     
     for arg in essential_args:
         chrome_options.add_argument(arg)
