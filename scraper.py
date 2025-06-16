@@ -485,7 +485,7 @@ def create_driver(headless=True):
         # "--disable-javascript",  # Disable JS if possible for your use case
         # "--disable-web-security",
         
-        Extreme memory optimization
+        # Extreme memory optimization
         "--memory-pressure-off",
         "--max_old_space_size=512",  # Very restrictive V8 heap
         "--disable-background-timer-throttling",
@@ -502,17 +502,17 @@ def create_driver(headless=True):
         "--disable-domain-reliability",
         "--disable-background-mode",
         
-        Zero cache
+        # Zero cache
         "--renderer-process-limit=1"
         "--media-cache-size=1",
         "--aggressive-cache-discard",
         "--disable-application-cache",
         
-        Process limits
+        # Process limits
         # "--single-process",  # Use single process (saves RAM but less stable)
         "--disable-site-isolation-trials",
         
-        Minimal user agent
+        # Minimal user agent
         "--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
     ]
     
