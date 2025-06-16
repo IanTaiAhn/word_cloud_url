@@ -455,24 +455,24 @@ def create_driver(headless=True):
         "--disk-cache-size=0",  # 0 instead of 1
         "--media-cache-size=0",
         "--disable-application-cache",
-        "--disable-offline-load-stale-cache",
+        # "--disable-offline-load-stale-cache",
 
         # Process management (safer than single-process)
-        "--renderer-process-limit=1",
+        # "--renderer-process-limit=1",
         "--disable-site-isolation-trials",
 
         # Anti-detection improvements for undetected-chromedriver
         "--disable-blink-features=AutomationControlled",
-        "--exclude-switches=enable-automation,enable-logging",
+        # "--exclude-switches=enable-automation,enable-logging",
         "--disable-logging",
         "--log-level=3",
-        "--silent",
+        # "--silent",
 
         # User agent (keep simple)
         "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     ]
-    ##Old settings...
-    # # Ultra-minimal Chrome configuration for maximum memory savings
+    #Old settings...
+    # Ultra-minimal Chrome configuration for maximum memory savings
     # essential_args = [
     #     "--no-sandbox",
     #     "--disable-dev-shm-usage",
@@ -482,10 +482,10 @@ def create_driver(headless=True):
     #     "--disable-extensions",
     #     "--disable-plugins",
     #     "--disable-images",
-    #     # "--disable-javascript",  # Disable JS if possible for your use case
-    #     # "--disable-web-security",
+    #     "--disable-javascript",  # Disable JS if possible for your use case
+    #     "--disable-web-security",
         
-    #     # Extreme memory optimization
+    #     Extreme memory optimization
     #     "--memory-pressure-off",
     #     "--max_old_space_size=512",  # Very restrictive V8 heap
     #     "--disable-background-timer-throttling",
@@ -502,17 +502,17 @@ def create_driver(headless=True):
     #     "--disable-domain-reliability",
     #     "--disable-background-mode",
         
-    #     # Zero cache
-    #     "--disk-cache-size=1",
+    #     Zero cache
+    #     "--renderer-process-limit=1"
     #     "--media-cache-size=1",
     #     "--aggressive-cache-discard",
     #     "--disable-application-cache",
         
-    #     # Process limits
-    #     # "--single-process",  # Use single process (saves RAM but less stable)
+    #     Process limits
+    #     "--single-process",  # Use single process (saves RAM but less stable)
     #     "--disable-site-isolation-trials",
         
-    #     # Minimal user agent
+    #     Minimal user agent
     #     "--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
     # ]
     
