@@ -143,7 +143,7 @@ class MemoryMonitoredPageLoad:
         
         # Strategy 1: Try with longer timeout first
         try:
-            self.driver.set_page_load_timeout(300)  # 5 minutes
+            self.driver.set_page_load_timeout(60)  # 1 minutes
             self.driver.get(self.url)
             logger.info("✅ Page loaded with standard method")
             return True
