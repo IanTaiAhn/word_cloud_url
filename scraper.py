@@ -109,6 +109,7 @@ class MemoryMonitoredPageLoad:
         self.should_stop = False
         self.load_completed = False
         self.error = None
+        self.content_available = False
         
     def memory_monitor_thread(self):
         """Background thread to monitor memory during page load"""
@@ -124,45 +125,126 @@ class MemoryMonitoredPageLoad:
                 break
             time.sleep(2)  # Check every 2 seconds
     
+    def check_content_availability(self):
+        """Check if any content is available even during loading"""
+        try:
+            # Check if we have any meaningful content
+            body = self.driver.find_element(By.TAG_NAME, "body")
+            if body and len(body.text.strip()) > 100:  # At least 100 chars
+                self.content_available = True
+                return True
+        except:
+            pass
+        return False
+    
+    def progressive_load_with_fallbacks(self):
+        """Progressive loading with multiple fallback strategies"""
+        logger.info(f"🌐 Loading page with progressive strategy: {self.url}")
+        
+        # Strategy 1: Try with longer timeout first
+        try:
+            self.driver.set_page_load_timeout(300)  # 5 minutes
+            self.driver.get(self.url)
+            logger.info("✅ Page loaded with standard method")
+            return True
+        except Exception as e:
+            logger.info(f"📝 Standard load failed: {e}")
+            
+        # Strategy 2: Try JavaScript navigation
+        try:
+            logger.info("🔄 Trying JavaScript navigation...")
+            self.driver.execute_script(f"window.location.href = '{self.url}';")
+            
+            # Wait and check for content progressively
+            for i in range(60):  # Check for up to 60 seconds
+                if self.should_stop:
+                    break
+                    
+                time.sleep(1)
+                if self.check_content_availability():
+                    logger.info(f"✅ Content detected after {i+1} seconds")
+                    return True
+                    
+        except Exception as e:
+            logger.info(f"📝 JavaScript navigation failed: {e}")
+        
+        # Strategy 3: Try to stop loading and work with partial content
+        try:
+            logger.info("🛑 Stopping page load to work with partial content...")
+            self.driver.execute_script("window.stop();")
+            time.sleep(2)
+            
+            if self.check_content_availability():
+                logger.info("✅ Working with partial content")
+                return True
+                
+        except Exception as e:
+            logger.info(f"📝 Partial content extraction failed: {e}")
+        
+        # Strategy 4: Try minimal page load
+        try:
+            logger.info("🔄 Trying minimal page approach...")
+            # Navigate to about:blank first
+            self.driver.get("about:blank")
+            time.sleep(1)
+            
+            # Try to load just the basic page structure
+            self.driver.execute_script(f"""
+                var xhr = new XMLHttpRequest();
+                xhr.open('GET', '{self.url}', true);
+                xhr.onload = function() {{
+                    if (xhr.status >= 200 && xhr.status < 300) {{
+                        document.open();
+                        document.write(xhr.responseText);
+                        document.close();
+                    }}
+                }};
+                xhr.send();
+            """)
+            
+            # Wait for content
+            for i in range(30):
+                if self.should_stop:
+                    break
+                time.sleep(1)
+                if self.check_content_availability():
+                    logger.info(f"✅ Minimal load successful after {i+1} seconds")
+                    return True
+                    
+        except Exception as e:
+            logger.info(f"📝 Minimal load failed: {e}")
+        
+        # If all strategies fail, return False
+        logger.warning("❌ All loading strategies failed")
+        return False
+    
     def load_with_memory_monitoring(self):
-        """Load page with continuous memory monitoring"""
+        """Load page with continuous memory monitoring and fallback strategies"""
         # Start memory monitoring thread
         monitor_thread = threading.Thread(target=self.memory_monitor_thread, daemon=True)
         monitor_thread.start()
         
         try:
-            # Remove all timeouts - let it run until memory limit or completion
-            self.driver.set_page_load_timeout(0)  # Infinite timeout
+            # Remove implicit waits
             self.driver.implicitly_wait(0)
             
-            logger.info(f"🌐 Loading page (no timeout limit): {self.url}")
-            self.driver.get(self.url)
-            
-            # Wait for body element without timeout
-            start_time = time.time()
-            while not self.should_stop:
-                try:
-                    self.driver.find_element(By.TAG_NAME, "body")
-                    break
-                except:
-                    if time.time() - start_time > 5:  # Just a basic sanity check
-                        break
-                    time.sleep(0.5)
+            # Try progressive loading strategies
+            success = self.progressive_load_with_fallbacks()
             
             self.load_completed = True
             
             if self.should_stop:
                 logger.warning("⏹️ Page load stopped due to memory limit")
-                return False
+                return self.content_available  # Return True if we have some content
             else:
-                logger.info("✅ Page loaded successfully")
-                return True
+                return success
                 
         except Exception as e:
             self.load_completed = True
             self.error = e
-            logger.warning(f"⚠️ Page load exception (continuing anyway): {e}")
-            return True  # Continue with whatever we have
+            logger.warning(f"⚠️ Page load exception: {e}")
+            # Even if there's an error, check if we have content
+            return self.check_content_availability()
         
         finally:
             self.load_completed = True
@@ -174,48 +256,6 @@ def create_driver(headless=True):
     
     chrome_options = uc.ChromeOptions()
     
-    # Ultra-minimal Chrome configuration for maximum memory savings
-    # essential_args = [
-    #     "--no-sandbox",
-    #     "--disable-dev-shm-usage",
-    #     "--disable-gpu",
-    #     "--disable-software-rasterizer",
-    #     "--window-size=800,600",
-    #     "--disable-extensions",
-    #     "--disable-plugins",
-    #     "--disable-images",
-        
-    #     # Extreme memory optimization
-    #     "--memory-pressure-off",
-    #     "--max_old_space_size=512",  # Very restrictive V8 heap
-    #     "--disable-background-timer-throttling",
-    #     "--disable-renderer-backgrounding",
-    #     "--disable-backgrounding-occluded-windows",
-    #     "--disable-features=TranslateUI,VizDisplayCompositor,AudioServiceOutOfProcess",
-    #     "--disable-ipc-flooding-protection",
-    #     "--disable-background-networking",
-    #     "--disable-sync",
-    #     "--disable-default-apps",
-    #     "--no-first-run",
-    #     "--disable-client-side-phishing-detection",
-    #     "--disable-component-update",
-    #     "--disable-domain-reliability",
-    #     "--disable-background-mode",
-        
-    #     # Zero cache and minimal processes
-    #     "--renderer-process-limit=1",
-    #     "--media-cache-size=1",
-    #     "--aggressive-cache-discard",
-    #     "--disable-application-cache",
-    #     "--disable-site-isolation-trials",
-        
-    #     # Remove all timeouts at browser level
-    #     "--disable-hang-monitor",
-    #     "--disable-prompt-on-repost",
-        
-    #     # Minimal user agent
-    #     "--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
-    # ]
     # Ultra-minimal Chrome configuration for maximum memory savings
     essential_args = [
         "--no-sandbox",
@@ -259,7 +299,7 @@ def create_driver(headless=True):
         # Minimal user agent
         "--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
     ]
-    
+
     for arg in essential_args:
         chrome_options.add_argument(arg)
     
@@ -287,7 +327,7 @@ def create_driver(headless=True):
 
 @memory_monitor  
 def load_page_with_memory_limit(driver, url):
-    """Load page with only memory-based stopping condition"""
+    """Load page with only memory-based stopping condition and timeout handling"""
     log_memory_usage("before page load")
     
     # Check memory before starting
@@ -295,12 +335,19 @@ def load_page_with_memory_limit(driver, url):
     if status == "STOP":
         return False
     
-    # Use memory-monitored page loading
+    # Use memory-monitored page loading with fallback strategies
     loader = MemoryMonitoredPageLoad(driver, url)
     success = loader.load_with_memory_monitoring()
     
     log_memory_usage("after page load")
-    return success
+    
+    if success:
+        logger.info("✅ Page loading completed successfully")
+    else:
+        logger.warning("⚠️ Page loading had issues but may have partial content")
+        
+    # Always return True if we don't hit memory limits - we'll work with whatever we have
+    return not loader.should_stop
 
 @memory_monitor
 def extract_html_with_memory_check(driver):
@@ -502,17 +549,9 @@ def scrape_url(url, headless=True, max_content_length=8000, memory_limit_mb=600)
         # Final aggressive cleanup
         force_cleanup()
 
-# # Convenience function with different memory limits
-# def scrape_url_conservative(url, **kwargs):
-#     """Scrape with conservative 400MB memory limit"""
-#     return scrape_url(url, memory_limit_mb=400, **kwargs)
-
-# def scrape_url_aggressive(url, **kwargs):
-#     """Scrape with aggressive 800MB memory limit"""
-#     return scrape_url(url, memory_limit_mb=800, **kwargs)
 
 
-
+############WORKING CODE#################
 # from selenium import webdriver
 # from selenium.webdriver.chrome.options import Options
 # from selenium.webdriver.chrome.service import Service
