@@ -307,38 +307,34 @@ async def home():
         </div>
         
         <script>
-                    // Improved script with timeout handling and better UX
+            // Improved script with no timeout and periodic status updates
             document.getElementById('urlForm').addEventListener('submit', async (e) => {
                 e.preventDefault();
                 const url = document.getElementById('urlInput').value;
                 const button = e.target.querySelector('button');
                 const originalButtonText = button.textContent;
-                
+
                 // Validate URL before processing
                 if (!isValidUrl(url)) {
                     showError('Please enter a valid URL');
                     return;
                 }
-                
+
                 // Create progress indicator
                 const progressDiv = createProgressIndicator();
                 button.parentNode.insertBefore(progressDiv, button.nextSibling);
-                
+
                 button.textContent = '🔄 Starting analysis...';
                 button.disabled = true;
-                
-                // Set up timeout controller
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => {
-                    controller.abort();
-                }, 120000); // 2 minute timeout
-                
+
                 let progressInterval;
-                
+                let statusUpdateInterval;
+
                 try {
-                    // Start progress animation
-                    startProgressAnimation(progressDiv, button);
-                    
+                    // Start progress animation and status updates
+                    progressInterval = startProgressAnimation(progressDiv, button);
+                    statusUpdateInterval = startStatusUpdates(progressDiv);
+
                     const response = await fetch('/process/', {
                         method: 'POST',
                         headers: {
@@ -346,17 +342,15 @@ async def home():
                             'Accept': 'application/json',
                             'Cache-Control': 'no-cache'
                         },
-                        body: JSON.stringify({url: url}),
-                        signal: controller.signal
+                        body: JSON.stringify({url: url})
+                        // No signal/timeout - let it run indefinitely
                     });
-                    
-                    clearTimeout(timeoutId);
-                    
+
                     if (response.ok) {
                         const data = await response.json();
                         if (data.success) {
                             updateProgress(progressDiv, '✅ Complete! Loading results...');
-                            
+
                             // Smooth transition to results
                             setTimeout(() => {
                                 document.body.innerHTML = data.html_content;
@@ -375,34 +369,30 @@ async def home():
                         }
                         throw new Error(errorMessage);
                     }
-                    
+
                 } catch (error) {
-                    clearTimeout(timeoutId);
                     console.error('Error:', error);
-                    
+
                     let userMessage;
-                    if (error.name === 'AbortError') {
-                        userMessage = '⏱️ Request timed out. The URL might be taking too long to process. Please try a simpler page or try again later.';
-                    } else if (error.message.includes('fetch')) {
+                    if (error.message.includes('fetch')) {
                         userMessage = '🌐 Network error. Please check your connection and try again.';
-                    } else if (error.message.includes('timeout')) {
-                        userMessage = '⏱️ The server is taking too long to respond. Please try again.';
                     } else {
                         userMessage = `❌ ${error.message}`;
                     }
-                    
+
                     showError(userMessage);
                     resetButton(button, originalButtonText);
-                    
+
                 } finally {
-                    // Clean up
+                    // Clean up intervals
                     if (progressInterval) clearInterval(progressInterval);
+                    if (statusUpdateInterval) clearInterval(statusUpdateInterval);
                     if (progressDiv && progressDiv.parentNode) {
                         progressDiv.parentNode.removeChild(progressDiv);
                     }
                 }
             });
-            
+
             // Helper functions
             function isValidUrl(string) {
                 try {
@@ -412,7 +402,7 @@ async def home():
                     return false;
                 }
             }
-            
+
             function createProgressIndicator() {
                 const div = document.createElement('div');
                 div.style.cssText = `
@@ -431,14 +421,15 @@ async def home():
                         <div id="progressBar" style="background: #4a90e2; height: 100%; width: 0%; transition: width 0.3s;"></div>
                     </div>
                     <div id="progressText" style="margin-top: 8px; font-size: 12px;">Initializing...</div>
+                    <div id="statusText" style="margin-top: 4px; font-size: 11px; color: #666; font-style: italic;"></div>
                 `;
                 return div;
             }
-            
+
             function startProgressAnimation(progressDiv, button) {
                 const progressBar = progressDiv.querySelector('#progressBar');
                 const progressText = progressDiv.querySelector('#progressText');
-                
+
                 const steps = [
                     { width: '10%', text: '🕷️ Scraping content...', buttonText: '🔄 Scraping website...' },
                     { width: '30%', text: '🧹 Cleaning text...', buttonText: '🔄 Processing text...' },
@@ -446,9 +437,9 @@ async def home():
                     { width: '70%', text: '☁️ Generating wordclouds...', buttonText: '🔄 Creating visualizations...' },
                     { width: '90%', text: '📄 Building results page...', buttonText: '🔄 Almost done...' }
                 ];
-                
+
                 let currentStep = 0;
-                
+
                 const interval = setInterval(() => {
                     if (currentStep < steps.length) {
                         const step = steps[currentStep];
@@ -457,20 +448,61 @@ async def home():
                         button.textContent = step.buttonText;
                         currentStep++;
                     } else {
-                        clearInterval(interval);
+                        // Cycle through the last few steps to show continued activity
+                        const lastSteps = steps.slice(-2);
+                        const cycleStep = lastSteps[currentStep % lastSteps.length];
+                        progressText.textContent = cycleStep.text;
+                        button.textContent = cycleStep.buttonText;
+                        currentStep++;
                     }
                 }, 8000); // Update every 8 seconds
-                
+
                 return interval;
             }
-            
+
+            function startStatusUpdates(progressDiv) {
+                const statusText = progressDiv.querySelector('#statusText');
+                let elapsedMinutes = 0;
+
+                const interval = setInterval(() => {
+                    elapsedMinutes += 2;
+
+                    if (elapsedMinutes === 2) {
+                        statusText.textContent = 'Still processing... Complex pages can take time to analyze.';
+                    } else if (elapsedMinutes === 4) {
+                        statusText.textContent = 'Still working... Large pages require more processing time.';
+                    } else if (elapsedMinutes === 6) {
+                        statusText.textContent = 'Processing continues... Please be patient for best results.';
+                    } else if (elapsedMinutes === 8) {
+                        statusText.textContent = 'Still analyzing... The page has substantial content to process.';
+                    } else if (elapsedMinutes === 10) {
+                        statusText.textContent = 'Processing ongoing... Complex analysis takes time for quality results.';
+                    } else {
+                        // For longer processing times, show encouraging messages
+                        const longMessages = [
+                            'Still processing... Good things take time!',
+                            'Analysis in progress... Quality results are worth the wait.',
+                            'Processing continues... Thank you for your patience.',
+                            'Still working hard on your analysis...',
+                            'Complex processing in progress... Almost there!'
+                        ];
+                        const messageIndex = Math.floor((elapsedMinutes - 12) / 2) % longMessages.length;
+                        statusText.textContent = `${longMessages[messageIndex]} (${elapsedMinutes} minutes elapsed)`;
+                    }
+                }, 120000); // Update every 2 minutes (120,000 ms)
+
+                return interval;
+            }
+
             function updateProgress(progressDiv, message) {
                 const progressBar = progressDiv.querySelector('#progressBar');
                 const progressText = progressDiv.querySelector('#progressText');
+                const statusText = progressDiv.querySelector('#statusText');
                 progressBar.style.width = '100%';
                 progressText.textContent = message;
+                statusText.textContent = '';
             }
-            
+
             function showError(message) {
                 // Create or update error message
                 let errorDiv = document.getElementById('errorMessage');
@@ -488,9 +520,9 @@ async def home():
                     `;
                     document.getElementById('urlForm').appendChild(errorDiv);
                 }
-                
+
                 errorDiv.textContent = message;
-                
+
                 // Auto-hide after 10 seconds
                 setTimeout(() => {
                     if (errorDiv && errorDiv.parentNode) {
@@ -498,7 +530,7 @@ async def home():
                     }
                 }, 10000);
             }
-            
+
             function resetButton(button, originalText) {
                 setTimeout(() => {
                     button.textContent = originalText;
@@ -509,6 +541,205 @@ async def home():
     </body>
     </html>
     """)
+    
+            #         // Improved script with timeout handling and better UX
+            # document.getElementById('urlForm').addEventListener('submit', async (e) => {
+            #     e.preventDefault();
+            #     const url = document.getElementById('urlInput').value;
+            #     const button = e.target.querySelector('button');
+            #     const originalButtonText = button.textContent;
+                
+            #     // Validate URL before processing
+            #     if (!isValidUrl(url)) {
+            #         showError('Please enter a valid URL');
+            #         return;
+            #     }
+                
+            #     // Create progress indicator
+            #     const progressDiv = createProgressIndicator();
+            #     button.parentNode.insertBefore(progressDiv, button.nextSibling);
+                
+            #     button.textContent = '🔄 Starting analysis...';
+            #     button.disabled = true;
+                
+            #     // Set up timeout controller
+            #     const controller = new AbortController();
+            #     const timeoutId = setTimeout(() => {
+            #         controller.abort();
+            #     }, 120000); // 2 minute timeout
+                
+            #     let progressInterval;
+                
+            #     try {
+            #         // Start progress animation
+            #         startProgressAnimation(progressDiv, button);
+                    
+            #         const response = await fetch('/process/', {
+            #             method: 'POST',
+            #             headers: {
+            #                 'Content-Type': 'application/json',
+            #                 'Accept': 'application/json',
+            #                 'Cache-Control': 'no-cache'
+            #             },
+            #             body: JSON.stringify({url: url}),
+            #             signal: controller.signal
+            #         });
+                    
+            #         clearTimeout(timeoutId);
+                    
+            #         if (response.ok) {
+            #             const data = await response.json();
+            #             if (data.success) {
+            #                 updateProgress(progressDiv, '✅ Complete! Loading results...');
+                            
+            #                 // Smooth transition to results
+            #                 setTimeout(() => {
+            #                     document.body.innerHTML = data.html_content;
+            #                 }, 500);
+            #             } else {
+            #                 throw new Error(data.error || data.detail || 'Failed to analyze URL');
+            #             }
+            #         } else {
+            #             // Handle different HTTP status codes
+            #             let errorMessage;
+            #             try {
+            #                 const errorData = await response.json();
+            #                 errorMessage = errorData.detail || errorData.error || `Server error (${response.status})`;
+            #             } catch {
+            #                 errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+            #             }
+            #             throw new Error(errorMessage);
+            #         }
+                    
+            #     } catch (error) {
+            #         clearTimeout(timeoutId);
+            #         console.error('Error:', error);
+                    
+            #         let userMessage;
+            #         if (error.name === 'AbortError') {
+            #             userMessage = '⏱️ Request timed out. The URL might be taking too long to process. Please try a simpler page or try again later.';
+            #         } else if (error.message.includes('fetch')) {
+            #             userMessage = '🌐 Network error. Please check your connection and try again.';
+            #         } else if (error.message.includes('timeout')) {
+            #             userMessage = '⏱️ The server is taking too long to respond. Please try again.';
+            #         } else {
+            #             userMessage = `❌ ${error.message}`;
+            #         }
+                    
+            #         showError(userMessage);
+            #         resetButton(button, originalButtonText);
+                    
+            #     } finally {
+            #         // Clean up
+            #         if (progressInterval) clearInterval(progressInterval);
+            #         if (progressDiv && progressDiv.parentNode) {
+            #             progressDiv.parentNode.removeChild(progressDiv);
+            #         }
+            #     }
+            # });
+            
+            # // Helper functions
+            # function isValidUrl(string) {
+            #     try {
+            #         new URL(string);
+            #         return string.startsWith('http://') || string.startsWith('https://');
+            #     } catch (_) {
+            #         return false;
+            #     }
+            # }
+            
+            # function createProgressIndicator() {
+            #     const div = document.createElement('div');
+            #     div.style.cssText = `
+            #         margin: 10px 0;
+            #         padding: 15px;
+            #         background: #f0f8ff;
+            #         border: 1px solid #4a90e2;
+            #         border-radius: 8px;
+            #         font-family: monospace;
+            #         font-size: 14px;
+            #         color: #2c5aa0;
+            #     `;
+            #     div.innerHTML = `
+            #         <div style="margin-bottom: 8px;">📊 Processing your URL...</div>
+            #         <div style="background: #e0e0e0; height: 6px; border-radius: 3px; overflow: hidden;">
+            #             <div id="progressBar" style="background: #4a90e2; height: 100%; width: 0%; transition: width 0.3s;"></div>
+            #         </div>
+            #         <div id="progressText" style="margin-top: 8px; font-size: 12px;">Initializing...</div>
+            #     `;
+            #     return div;
+            # }
+            
+            # function startProgressAnimation(progressDiv, button) {
+            #     const progressBar = progressDiv.querySelector('#progressBar');
+            #     const progressText = progressDiv.querySelector('#progressText');
+                
+            #     const steps = [
+            #         { width: '10%', text: '🕷️ Scraping content...', buttonText: '🔄 Scraping website...' },
+            #         { width: '30%', text: '🧹 Cleaning text...', buttonText: '🔄 Processing text...' },
+            #         { width: '50%', text: '🔍 Analyzing topics...', buttonText: '🔄 Finding topics...' },
+            #         { width: '70%', text: '☁️ Generating wordclouds...', buttonText: '🔄 Creating visualizations...' },
+            #         { width: '90%', text: '📄 Building results page...', buttonText: '🔄 Almost done...' }
+            #     ];
+                
+            #     let currentStep = 0;
+                
+            #     const interval = setInterval(() => {
+            #         if (currentStep < steps.length) {
+            #             const step = steps[currentStep];
+            #             progressBar.style.width = step.width;
+            #             progressText.textContent = step.text;
+            #             button.textContent = step.buttonText;
+            #             currentStep++;
+            #         } else {
+            #             clearInterval(interval);
+            #         }
+            #     }, 8000); // Update every 8 seconds
+                
+            #     return interval;
+            # }
+            
+            # function updateProgress(progressDiv, message) {
+            #     const progressBar = progressDiv.querySelector('#progressBar');
+            #     const progressText = progressDiv.querySelector('#progressText');
+            #     progressBar.style.width = '100%';
+            #     progressText.textContent = message;
+            # }
+            
+            # function showError(message) {
+            #     // Create or update error message
+            #     let errorDiv = document.getElementById('errorMessage');
+            #     if (!errorDiv) {
+            #         errorDiv = document.createElement('div');
+            #         errorDiv.id = 'errorMessage';
+            #         errorDiv.style.cssText = `
+            #             margin: 15px 0;
+            #             padding: 15px;
+            #             background: #ffe6e6;
+            #             border: 1px solid #ff4444;
+            #             border-radius: 8px;
+            #             color: #cc0000;
+            #             font-weight: bold;
+            #         `;
+            #         document.getElementById('urlForm').appendChild(errorDiv);
+            #     }
+                
+            #     errorDiv.textContent = message;
+                
+            #     // Auto-hide after 10 seconds
+            #     setTimeout(() => {
+            #         if (errorDiv && errorDiv.parentNode) {
+            #             errorDiv.parentNode.removeChild(errorDiv);
+            #         }
+            #     }, 10000);
+            # }
+            
+            # function resetButton(button, originalText) {
+            #     setTimeout(() => {
+            #         button.textContent = originalText;
+            #         button.disabled = false;
+            #     }, 3000);
+            # }
             
             # document.getElementById('urlForm').addEventListener('submit', async (e) => {
             #     e.preventDefault();
