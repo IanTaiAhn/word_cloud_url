@@ -71,7 +71,7 @@ async def process_url_json(data: URLRequest):
         
         # Step 1: Scraping
         logger.info("📡 Step 1: Starting web scraping...")
-        raw_text = scrape_url(url_str, headless=True, timeout=30, ignore_ssl=True)
+        raw_text = scrape_url(url_str, headless=True, timeout=30, max_content_length=8000)
         logger.info(f"✅ Scraping completed. Text length: {len(raw_text)} characters")
         
         # Check if scraping failed
