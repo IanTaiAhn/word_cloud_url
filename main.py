@@ -58,7 +58,7 @@ class ErrorResponse(BaseModel):
     error: str
     url: str
 
-@app.post("/process/", response_model=ProcessResponse)
+@app.post("/process/")
 async def process_url_json(data: URLRequest):
     """
     Process URL and return JSON response with HTML content.
@@ -77,7 +77,7 @@ async def process_url_json(data: URLRequest):
         # Check if scraping failed
         if raw_text.startswith("[Timeout]") or raw_text.startswith("[Error]"):
             logger.error(f"❌ Scraping failed: {raw_text}")
-            raise Exception(f"Scraping failed: {raw_text}")
+            raise HTTPException(status_code=400, detail=f"Scraping failed: {raw_text}")
         
         # Step 2: Text cleaning
         logger.info("🧹 Step 2: Cleaning text...")
@@ -85,7 +85,7 @@ async def process_url_json(data: URLRequest):
         logger.info(f"✅ Text cleaning completed. Number of documents: {len(docs)}")
         
         if not docs or len(docs) == 0:
-            raise Exception("No valid documents found after cleaning")
+            raise HTTPException(status_code=400, detail="No valid documents found after cleaning")
         
         # Step 3: Dynamic topic modeling based on document count
         logger.info("🔍 Step 3: Running topic modeling...")
@@ -106,7 +106,7 @@ async def process_url_json(data: URLRequest):
         logger.info(f"✅ Topic modeling completed. Number of topics: {len(topics) if topics else 0}")
         
         if not topics:
-            raise Exception("No topics generated from the text")
+            raise HTTPException(status_code=400, detail="No topics generated from the text")
         
         # Step 4: Generate wordclouds
         logger.info("☁️ Step 4: Generating wordclouds...")
@@ -123,18 +123,18 @@ async def process_url_json(data: URLRequest):
         )
         logger.info("✅ HTML page generation completed")
         
-        # Return JSON response instead of HTMLResponse
-        return JSONResponse(
-            content={
-                "success": True,
-                "html_content": html_page,
-                "url": url_str,
-                "num_documents": len(docs),
-                "num_topics": len(topics) if topics else 0
-            },
-            status_code=200
-        )
+        # Return successful JSON response
+        return {
+            "success": True,
+            "html_content": html_page,
+            "url": url_str,
+            "num_documents": len(docs),
+            "num_topics": len(topics) if topics else 0
+        }
         
+    except HTTPException:
+        # Re-raise HTTPExceptions as-is
+        raise
     except Exception as e:
         # Log the full error details
         url_str = str(data.url) if hasattr(data, 'url') else 'unknown'
@@ -143,15 +143,106 @@ async def process_url_json(data: URLRequest):
         import traceback
         logger.error(f"Full traceback: {traceback.format_exc()}")
         
-        # Return JSON error response
-        return JSONResponse(
-            content={
-                "success": False,
-                "error": str(e),
-                "url": url_str
-            },
-            status_code=400
+        # Raise HTTPException for proper error handling
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Internal server error: {str(e)}"
         )
+
+# @app.post("/process/", response_model=ProcessResponse)
+# async def process_url_json(data: URLRequest):
+#     """
+#     Process URL and return JSON response with HTML content.
+#     This avoids protocol errors that can occur with HTMLResponse.
+#     """
+#     try:
+#         # Convert Pydantic HttpUrl to string
+#         url_str = str(data.url)
+#         logger.info(f"🚀 Starting to process URL: {url_str}")
+        
+#         # Step 1: Scraping
+#         logger.info("📡 Step 1: Starting web scraping...")
+#         raw_text = scrape_url(url_str, headless=True, timeout=30, max_content_length=8000)
+#         logger.info(f"✅ Scraping completed. Text length: {len(raw_text)} characters")
+        
+#         # Check if scraping failed
+#         if raw_text.startswith("[Timeout]") or raw_text.startswith("[Error]"):
+#             logger.error(f"❌ Scraping failed: {raw_text}")
+#             raise Exception(f"Scraping failed: {raw_text}")
+        
+#         # Step 2: Text cleaning
+#         logger.info("🧹 Step 2: Cleaning text...")
+#         docs = clean_text(raw_text)
+#         logger.info(f"✅ Text cleaning completed. Number of documents: {len(docs)}")
+        
+#         if not docs or len(docs) == 0:
+#             raise Exception("No valid documents found after cleaning")
+        
+#         # Step 3: Dynamic topic modeling based on document count
+#         logger.info("🔍 Step 3: Running topic modeling...")
+        
+#         # Calculate appropriate number of clusters
+#         n_docs = len(docs)
+#         if n_docs == 1:
+#             n_clusters = 1
+#             logger.info(f"Single document detected. Using {n_clusters} cluster.")
+#         elif n_docs < 5:
+#             n_clusters = n_docs
+#             logger.info(f"Few documents ({n_docs}). Using {n_clusters} clusters.")
+#         else:
+#             n_clusters = min(5, n_docs)
+#             logger.info(f"Multiple documents ({n_docs}). Using {n_clusters} clusters.")
+        
+#         topics, _ = model_topics(docs, n_clusters=n_clusters)
+#         logger.info(f"✅ Topic modeling completed. Number of topics: {len(topics) if topics else 0}")
+        
+#         if not topics:
+#             raise Exception("No topics generated from the text")
+        
+#         # Step 4: Generate wordclouds
+#         logger.info("☁️ Step 4: Generating wordclouds...")
+#         wordclouds = generate_wordclouds_html(topics)
+#         logger.info(f"✅ Wordclouds generated. Number of wordclouds: {len(wordclouds) if wordclouds else 0}")
+        
+#         # Step 5: Generate HTML page
+#         logger.info("📄 Step 5: Generating HTML page...")
+#         html_page = generate_full_html_page(
+#             url=url_str,  # Pass string version
+#             wordclouds=wordclouds,
+#             topics=topics,
+#             num_documents=len(docs)
+#         )
+#         logger.info("✅ HTML page generation completed")
+        
+#         # Return JSON response instead of HTMLResponse
+#         return JSONResponse(
+#             content={
+#                 "success": True,
+#                 "html_content": html_page,
+#                 "url": url_str,
+#                 "num_documents": len(docs),
+#                 "num_topics": len(topics) if topics else 0
+#             },
+#             status_code=200
+#         )
+        
+#     except Exception as e:
+#         # Log the full error details
+#         url_str = str(data.url) if hasattr(data, 'url') else 'unknown'
+#         logger.error(f"❌ Error processing URL {url_str}: {str(e)}")
+#         logger.error(f"Error type: {type(e).__name__}")
+#         import traceback
+#         logger.error(f"Full traceback: {traceback.format_exc()}")
+        
+#         # Return JSON error response
+#         return JSONResponse(
+#             content={
+#                 "success": False,
+#                 "error": str(e),
+#                 "url": url_str
+#             },
+#             status_code=400
+#         )
 
 # Updated home page with modified JavaScript
 @app.get("/", response_class=HTMLResponse)
