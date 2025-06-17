@@ -78,24 +78,24 @@ def model_topics(docs, n_clusters=5):
     topics, embeddings = topic_model.fit_transform(docs)
     return topic_model.get_topics(), embeddings
 
-# Example usage:
-if __name__ == "__main__":
-    # Sample documents
-    docs = [
-        "Python programming is great for data science and machine learning",
-        "JavaScript is essential for web development and frontend applications",
-        "Machine learning algorithms require lots of data preprocessing",
-        "Web developers use HTML CSS and JavaScript for building websites",
-        "Data scientists use Python pandas and numpy for data analysis",
-        "React and Vue are popular JavaScript frameworks for web apps"
-    ]
+# # Example usage:
+# if __name__ == "__main__":
+#     # Sample documents
+#     docs = [
+#         "Python programming is great for data science and machine learning",
+#         "JavaScript is essential for web development and frontend applications",
+#         "Machine learning algorithms require lots of data preprocessing",
+#         "Web developers use HTML CSS and JavaScript for building websites",
+#         "Data scientists use Python pandas and numpy for data analysis",
+#         "React and Vue are popular JavaScript frameworks for web apps"
+#     ]
     
-    # Use exactly like your original function
-    topics, embeddings = model_topics(docs, n_clusters=3)
+#     # Use exactly like your original function
+#     topics, embeddings = model_topics(docs, n_clusters=3)
     
-    # Print topics
-    for topic_id, words in topics.items():
-        print(f"Topic {topic_id}:")
-        for word, score in words:
-            print(f"  {word}: {score:.3f}")
-        print()
+#     # Print topics
+#     for topic_id, words in topics.items():
+#         print(f"Topic {topic_id}:")
+#         for word, score in words:
+#             print(f"  {word}: {score:.3f}")
+#         print()

@@ -90,15 +90,15 @@ def create_driver() -> webdriver.Chrome:
     try:
 
         # Disable SSL verification for ChromeDriverManager if needed
-        os.environ['WDM_SSL_VERIFY'] = '0'
+        # os.environ['WDM_SSL_VERIFY'] = '0'
 
         # service = Service(ChromeDriverManager().install())
         driver = uc.Chrome(options=get_chrome_options())
         
         # Phase 2: Re-enable SSL verification for everything else
-        os.environ.pop('WDM_SSL_VERIFY', None)
-        os.environ.pop('REQUESTS_CA_BUNDLE', None)
-        os.environ.pop('SSL_CERT_FILE', None)
+        # os.environ.pop('WDM_SSL_VERIFY', None)
+        # os.environ.pop('REQUESTS_CA_BUNDLE', None)
+        # os.environ.pop('SSL_CERT_FILE', None)
 
         # Set timeouts to prevent hanging
         driver.set_page_load_timeout(30)
