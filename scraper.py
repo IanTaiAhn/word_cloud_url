@@ -149,7 +149,9 @@ class MemoryMonitoredPageLoad:
             return True
         except Exception as e:
             logger.info(f"📝 Standard load failed: {e}")
-            
+        
+        log_memory_usage("after failing strategy 1")
+
         # Strategy 2: Try JavaScript navigation
         try:
             logger.info("🔄 Trying JavaScript navigation...")
@@ -168,6 +170,8 @@ class MemoryMonitoredPageLoad:
         except Exception as e:
             logger.info(f"📝 JavaScript navigation failed: {e}")
         
+        log_memory_usage("after failing strategy 2")
+
         # Strategy 3: Try to stop loading and work with partial content
         try:
             logger.info("🛑 Stopping page load to work with partial content...")
@@ -181,6 +185,8 @@ class MemoryMonitoredPageLoad:
         except Exception as e:
             logger.info(f"📝 Partial content extraction failed: {e}")
         
+        log_memory_usage("after failing strategy 3")
+
         # Strategy 4: Try minimal page load
         try:
             logger.info("🔄 Trying minimal page approach...")
@@ -214,6 +220,8 @@ class MemoryMonitoredPageLoad:
         except Exception as e:
             logger.info(f"📝 Minimal load failed: {e}")
         
+        log_memory_usage("after failing strategy 4")
+
         # If all strategies fail, return False
         logger.warning("❌ All loading strategies failed")
         return False
