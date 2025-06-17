@@ -40,6 +40,7 @@ def get_chrome_options() -> Options:
         "--disable-extensions",
         "--disable-plugins",
         "--disable-images",
+        "--headless=new",
         
         # Extreme memory optimization
         "--memory-pressure-off",
