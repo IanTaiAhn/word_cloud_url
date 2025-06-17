@@ -1,475 +1,322 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
-from pydantic import BaseModel, HttpUrl
-import logging
-from scraper import scrape_url_local
-from preprocess import clean_text
-from topic_model import model_topics
-from visualization import generate_wordclouds_html, generate_full_html_page
+"""
+main.py - FastAPI REST endpoints for URL scraping service
+"""
 
-# Set up logging configuration
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler()  # This will output to console/Render logs
-    ]
+import os
+import json
+import uuid
+import threading
+from datetime import datetime
+from typing import Dict, Any, Optional
+
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+import redis
+
+# Import our scraping module
+from scraper import scrape_url_with_progress, validate_url, ScrapingError, get_memory_usage
+
+app = FastAPI(
+    title="URL Scraper API",
+    description="Asynchronous URL scraping service with progress tracking",
+    version="1.0.0"
 )
 
-# Create logger instance
-logger = logging.getLogger(__name__)
-
-app = FastAPI()
-
-# Add CORS middleware to handle cross-origin requests
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Configure this properly for production
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Step 1: Define a request model
-class URLRequest(BaseModel):
-    url: HttpUrl
-
-
-
-# Step 1: Define a request model
-class URLRequest(BaseModel):
-    url: HttpUrl
-
-# Response models for better API documentation
-class ProcessResponse(BaseModel):
-    success: bool
-    html_content: str
-    url: str
-    num_documents: int
-    num_topics: int
-
-class ErrorResponse(BaseModel):
-    success: bool
-    error: str
-    url: str
-
-@app.post("/process/", response_model=ProcessResponse)
-async def process_url_json(data: URLRequest):
-    """
-    Process URL and return JSON response with HTML content.
-    This avoids protocol errors that can occur with HTMLResponse.
-    """
+# Redis setup with fallback to memory storage
+def get_redis_client():
+    """Initialize Redis client with fallback to None"""
     try:
-        # Convert Pydantic HttpUrl to string
-        url_str = str(data.url)
-        logger.info(f"🚀 Starting to process URL: {url_str}")
-        
-        # Step 1: Scraping
-        logger.info("📡 Step 1: Starting web scraping...")
-        raw_text = scrape_url_local(url_str, headless=True, timeout=30, ignore_ssl=True)
-        logger.info(f"✅ Scraping completed. Text length: {len(raw_text)} characters")
-        
-        # Check if scraping failed
-        if raw_text.startswith("[Timeout]") or raw_text.startswith("[Error]"):
-            logger.error(f"❌ Scraping failed: {raw_text}")
-            raise Exception(f"Scraping failed: {raw_text}")
-        
-        # Step 2: Text cleaning
-        logger.info("🧹 Step 2: Cleaning text...")
-        docs = clean_text(raw_text)
-        logger.info(f"✅ Text cleaning completed. Number of documents: {len(docs)}")
-        
-        if not docs or len(docs) == 0:
-            raise Exception("No valid documents found after cleaning")
-        
-        # Step 3: Dynamic topic modeling based on document count
-        logger.info("🔍 Step 3: Running topic modeling...")
-        
-        # Calculate appropriate number of clusters
-        n_docs = len(docs)
-        if n_docs == 1:
-            n_clusters = 1
-            logger.info(f"Single document detected. Using {n_clusters} cluster.")
-        elif n_docs < 5:
-            n_clusters = n_docs
-            logger.info(f"Few documents ({n_docs}). Using {n_clusters} clusters.")
-        else:
-            n_clusters = min(5, n_docs)
-            logger.info(f"Multiple documents ({n_docs}). Using {n_clusters} clusters.")
-        
-        topics, _ = model_topics(docs, n_clusters=n_clusters)
-        logger.info(f"✅ Topic modeling completed. Number of topics: {len(topics) if topics else 0}")
-        
-        if not topics:
-            raise Exception("No topics generated from the text")
-        
-        # Step 4: Generate wordclouds
-        logger.info("☁️ Step 4: Generating wordclouds...")
-        wordclouds = generate_wordclouds_html(topics)
-        logger.info(f"✅ Wordclouds generated. Number of wordclouds: {len(wordclouds) if wordclouds else 0}")
-        
-        # Step 5: Generate HTML page
-        logger.info("📄 Step 5: Generating HTML page...")
-        html_page = generate_full_html_page(
-            url=url_str,  # Pass string version
-            wordclouds=wordclouds,
-            topics=topics,
-            num_documents=len(docs)
+        r = redis.Redis(
+            host=os.getenv('REDIS_HOST', 'localhost'),
+            port=int(os.getenv('REDIS_PORT', 6379)),
+            db=int(os.getenv('REDIS_DB', 0)),
+            decode_responses=True,
+            socket_connect_timeout=5,
+            socket_timeout=5
         )
-        logger.info("✅ HTML page generation completed")
-        
-        # Return JSON response instead of HTMLResponse
-        return JSONResponse(
-            content={
-                "success": True,
-                "html_content": html_page,
-                "url": url_str,
-                "num_documents": len(docs),
-                "num_topics": len(topics) if topics else 0
-            },
-            status_code=200
-        )
-        
-    except Exception as e:
-        # Log the full error details
-        url_str = str(data.url) if hasattr(data, 'url') else 'unknown'
-        logger.error(f"❌ Error processing URL {url_str}: {str(e)}")
-        logger.error(f"Error type: {type(e).__name__}")
-        import traceback
-        logger.error(f"Full traceback: {traceback.format_exc()}")
-        
-        # Return JSON error response
-        return JSONResponse(
-            content={
-                "success": False,
-                "error": str(e),
-                "url": url_str
-            },
-            status_code=400
-        )
+        r.ping()  # Test connection
+        print("✅ Connected to Redis")
+        return r
+    except (redis.ConnectionError, redis.TimeoutError):
+        print("❌ Redis not available, using in-memory storage")
+        return None
 
-# # Keep the original HTML endpoint for backward compatibility (optional)
-# @app.post("/process-html/", response_class=HTMLResponse)
-# async def process_url_html_legacy(data: URLRequest):
-#     """Legacy HTML endpoint - kept for backward compatibility"""
-#     # Call the JSON endpoint and extract HTML
-#     json_response = await process_url_json(data)
+# Initialize storage
+redis_client = get_redis_client()
+USE_REDIS = redis_client is not None
+memory_jobs: Dict[str, Dict[str, Any]] = {}
+
+# Pydantic models
+class URLRequest(BaseModel):
+    url: str
+
+class JobResponse(BaseModel):
+    job_id: str
+    status: str
+
+class JobStatus(BaseModel):
+    job_id: str
+    status: str
+    progress: int
+    message: str
+    memory_mb: Optional[float] = None
+    updated_at: str
+
+class JobResult(BaseModel):
+    success: bool
+    result: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+
+# Job management functions
+def create_job(job_id: str, url: str) -> Dict[str, Any]:
+    """Create a new job record"""
+    job_data = {
+        'job_id': job_id,
+        'url': url,
+        'status': 'pending',
+        'progress': 0,
+        'message': 'Job queued for processing',
+        'result': None,
+        'error': None,
+        'created_at': datetime.now().isoformat(),
+        'updated_at': datetime.now().isoformat(),
+        'memory_mb': round(get_memory_usage(), 2)
+    }
     
-#     if hasattr(json_response, 'body'):
-#         import json
-#         response_data = json.loads(json_response.body)
-#         if response_data.get("success"):
-#             return HTMLResponse(content=response_data["html_content"], status_code=200)
-#         else:
-#             error_html = f"""
-#             <!DOCTYPE html>
-#             <html>
-#             <head><title>Error</title></head>
-#             <body style="font-family: Arial; padding: 20px; text-align: center;">
-#                 <h1>❌ Error Processing URL</h1>
-#                 <p>Sorry, we couldn't process the URL: <strong>{response_data.get('url', 'unknown')}</strong></p>
-#                 <p><strong>Error:</strong> {response_data.get('error', 'Unknown error')}</p>
-#                 <a href="/" style="color: #007bff;">← Try Another URL</a>
-#             </body>
-#             </html>
-#             """
-#             return HTMLResponse(content=error_html, status_code=400)
+    if USE_REDIS:
+        redis_client.setex(f"job:{job_id}", 3600, json.dumps(job_data))  # 1 hour TTL
+    else:
+        memory_jobs[job_id] = job_data
+    
+    return job_data
 
-# Updated home page with modified JavaScript
-@app.get("/", response_class=HTMLResponse)
-async def home():
-    return HTMLResponse(content="""
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Topic Analysis Tool</title>
-        <style>
-            body { 
-                font-family: 'Segoe UI', sans-serif; 
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                min-height: 100vh;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                margin: 0;
+def get_job(job_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieve job data by ID"""
+    if USE_REDIS:
+        job_json = redis_client.get(f"job:{job_id}")
+        return json.loads(job_json) if job_json else None
+    else:
+        return memory_jobs.get(job_id)
+
+def update_job_status(job_id: str, status: str, progress: int, message: str, result=None, error=None):
+    """Update job status - this is the callback function for the scraper"""
+    job = get_job(job_id)
+    if not job:
+        return
+    
+    job.update({
+        'status': status,
+        'progress': progress,
+        'message': message,
+        'updated_at': datetime.now().isoformat(),
+        'memory_mb': round(get_memory_usage(), 2)
+    })
+    
+    if result is not None:
+        job['result'] = result
+    if error is not None:
+        job['error'] = error
+    
+    if USE_REDIS:
+        redis_client.setex(f"job:{job_id}", 3600, json.dumps(job))
+    else:
+        memory_jobs[job_id] = job
+
+def delete_job(job_id: str):
+    """Delete a job record"""
+    if USE_REDIS:
+        redis_client.delete(f"job:{job_id}")
+    else:
+        memory_jobs.pop(job_id, None)
+
+# Background scraping function
+def run_scraping_job(job_id: str, url: str):
+    """Run the scraping job in a background thread"""
+    try:
+        # Create progress callback that updates job status
+        def progress_callback(status: str, progress: int, message: str):
+            update_job_status(job_id, status, progress, message)
+        
+        # Run the scraping
+        result = scrape_url_with_progress(url, progress_callback, job_id)
+        
+        # Update with final result
+        update_job_status(
+            job_id, 
+            'completed', 
+            100, 
+            'Scraping completed successfully!', 
+            result=result
+        )
+        
+    except ScrapingError as e:
+        update_job_status(
+            job_id, 
+            'failed', 
+            0, 
+            'Scraping failed', 
+            error=str(e)
+        )
+    except Exception as e:
+        update_job_status(
+            job_id, 
+            'failed', 
+            0, 
+            'Unexpected error occurred', 
+            error=f"Unexpected error: {str(e)}"
+        )
+
+# API Endpoints
+@app.post("/start-process/", response_model=JobResponse)
+async def start_process(request: URLRequest):
+    """
+    Start a new scraping job
+    
+    - **url**: The URL to scrape (must start with http:// or https://)
+    """
+    # Validate URL
+    if not validate_url(request.url):
+        raise HTTPException(
+            status_code=400, 
+            detail="Invalid URL. Must start with http:// or https:// and contain a domain."
+        )
+    
+    # Generate unique job ID
+    job_id = str(uuid.uuid4())
+    
+    # Create job record
+    create_job(job_id, request.url)
+    
+    # Start background scraping thread
+    thread = threading.Thread(
+        target=run_scraping_job, 
+        args=(job_id, request.url),
+        daemon=True
+    )
+    thread.start()
+    
+    return JobResponse(job_id=job_id, status="started")
+
+@app.get("/status/{job_id}", response_model=JobStatus)
+async def get_job_status(job_id: str):
+    """
+    Get the current status of a scraping job
+    
+    - **job_id**: The unique job identifier returned by /start-process/
+    """
+    job = get_job(job_id)
+    
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    return JobStatus(
+        job_id=job_id,
+        status=job['status'],
+        progress=job['progress'],
+        message=job['message'],
+        memory_mb=job.get('memory_mb'),
+        updated_at=job['updated_at']
+    )
+
+@app.get("/result/{job_id}", response_model=JobResult)
+async def get_job_result(job_id: str):
+    """
+    Get the final result of a completed scraping job
+    
+    - **job_id**: The unique job identifier returned by /start-process/
+    """
+    job = get_job(job_id)
+    
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    if job['status'] == 'completed':
+        return JobResult(success=True, result=job['result'])
+    elif job['status'] == 'failed':
+        return JobResult(success=False, error=job['error'])
+    else:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Job not completed yet. Current status: {job['status']} ({job['progress']}%)"
+        )
+
+@app.delete("/jobs/{job_id}")
+async def delete_job_endpoint(job_id: str):
+    """
+    Delete a job record (cleanup)
+    
+    - **job_id**: The unique job identifier to delete
+    """
+    job = get_job(job_id)
+    
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    delete_job(job_id)
+    return {"message": f"Job {job_id} deleted successfully"}
+
+@app.get("/health")
+async def health_check():
+    """
+    Health check endpoint with system information
+    """
+    return {
+        'status': 'healthy',
+        'memory_mb': round(get_memory_usage(), 2),
+        'redis_connected': USE_REDIS,
+        'active_jobs': len(memory_jobs) if not USE_REDIS else "unknown",
+        'timestamp': datetime.now().isoformat()
+    }
+
+@app.get("/jobs")
+async def list_jobs():
+    """
+    List all active jobs (for debugging)
+    """
+    if USE_REDIS:
+        # Get all job keys from Redis
+        job_keys = redis_client.keys("job:*")
+        jobs = []
+        for key in job_keys:
+            job_data = redis_client.get(key)
+            if job_data:
+                job = json.loads(job_data)
+                jobs.append({
+                    'job_id': job['job_id'],
+                    'status': job['status'],
+                    'progress': job['progress'],
+                    'url': job['url'],
+                    'created_at': job['created_at']
+                })
+        return {'jobs': jobs, 'count': len(jobs)}
+    else:
+        jobs = [
+            {
+                'job_id': job['job_id'],
+                'status': job['status'],
+                'progress': job['progress'],
+                'url': job['url'],
+                'created_at': job['created_at']
             }
-            .form-container {
-                background: rgba(255, 255, 255, 0.95);
-                padding: 40px;
-                border-radius: 15px;
-                box-shadow: 0 20px 40px rgba(0,0,0,0.1);
-                backdrop-filter: blur(10px);
-                max-width: 500px;
-                width: 90%;
-            }
-            h1 { text-align: center; color: #2c3e50; margin-bottom: 30px; }
-            input[type="url"] {
-                width: 100%;
-                padding: 15px;
-                border: 2px solid #e9ecef;
-                border-radius: 8px;
-                font-size: 16px;
-                margin-bottom: 20px;
-                box-sizing: border-box;
-            }
-            button {
-                width: 100%;
-                padding: 15px;
-                background: linear-gradient(45deg, #667eea, #764ba2);
-                color: white;
-                border: none;
-                border-radius: 8px;
-                font-size: 18px;
-                cursor: pointer;
-                transition: all 0.3s ease;
-            }
-            button:hover { transform: translateY(-2px); }
-        </style>
-    </head>
-    <body>
-        <div class="form-container">
-            <h1>🔍 Topic Analysis Tool</h1>
-            <form id="urlForm">
-                <input type="url" id="urlInput" placeholder="Enter URL to analyze..." required>
-                <button type="submit">Analyze Topics</button>
-            </form>
-        </div>
-        
-        <script>
-            document.getElementById('urlForm').addEventListener('submit', async (e) => {
-                e.preventDefault();
-                const url = document.getElementById('urlInput').value;
-                const button = e.target.querySelector('button');
-                
-                button.textContent = '🔄 Analyzing...';
-                button.disabled = true;
-                
-                try {
-                    const response = await fetch('/process/', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Accept': 'application/json'
-                        },
-                        body: JSON.stringify({url: url})
-                    });
-                    
-                    if (response.ok) {
-                        const data = await response.json();
-                        if (data.success) {
-                            // Replace the page content with the returned HTML
-                            document.body.innerHTML = data.html_content;
-                        } else {
-                            throw new Error(data.error || 'Failed to analyze URL');
-                        }
-                    } else {
-                        const errorData = await response.json();
-                        throw new Error(errorData.error || 'Failed to analyze URL');
-                    }
-                } catch (error) {
-                    console.error('Error:', error);
-                    button.textContent = '❌ Error - Try Again';
-                    button.disabled = false;
-                    setTimeout(() => {
-                        button.textContent = 'Analyze Topics';
-                    }, 2000);
-                }
-            });
-        </script>
-    </body>
-    </html>
-    """)
+            for job in memory_jobs.values()
+        ]
+        return {'jobs': jobs, 'count': len(jobs)}
 
-@app.post("/test/")
-async def test_endpoint(data: URLRequest):
-    return {"received_url": data.url}
-
-# @app.post("/process/", response_class=HTMLResponse)
-# async def process_url_html_new(data: URLRequest):
-#     try:
-#         # Convert Pydantic HttpUrl to string
-#         url_str = str(data.url)
-#         logger.info(f"🚀 Starting to process URL: {url_str}")
-        
-#         # Step 1: Scraping
-#         logger.info("📡 Step 1: Starting web scraping...")
-#         raw_text = scrape_url_local(url_str, headless=True, timeout=30, ignore_ssl=True)
-#         logger.info(f"✅ Scraping completed. Text length: {len(raw_text)} characters")
-        
-#         # Check if scraping failed
-#         if raw_text.startswith("[Timeout]") or raw_text.startswith("[Error]"):
-#             logger.error(f"❌ Scraping failed: {raw_text}")
-#             raise Exception(f"Scraping failed: {raw_text}")
-        
-#         # Step 2: Text cleaning
-#         logger.info("🧹 Step 2: Cleaning text...")
-#         docs = clean_text(raw_text)
-#         logger.info(f"✅ Text cleaning completed. Number of documents: {len(docs)}")
-        
-#         if not docs or len(docs) == 0:
-#             raise Exception("No valid documents found after cleaning")
-        
-#         # Step 3: Dynamic topic modeling based on document count
-#         logger.info("🔍 Step 3: Running topic modeling...")
-        
-#         # Calculate appropriate number of clusters
-#         n_docs = len(docs)
-#         if n_docs == 1:
-#             n_clusters = 1
-#             logger.info(f"Single document detected. Using {n_clusters} cluster.")
-#         elif n_docs < 5:
-#             n_clusters = n_docs
-#             logger.info(f"Few documents ({n_docs}). Using {n_clusters} clusters.")
-#         else:
-#             n_clusters = min(5, n_docs)
-#             logger.info(f"Multiple documents ({n_docs}). Using {n_clusters} clusters.")
-        
-#         topics, _ = model_topics(docs, n_clusters=n_clusters)
-#         logger.info(f"✅ Topic modeling completed. Number of topics: {len(topics) if topics else 0}")
-        
-#         if not topics:
-#             raise Exception("No topics generated from the text")
-        
-#         # Step 4: Generate wordclouds
-#         logger.info("☁️ Step 4: Generating wordclouds...")
-#         wordclouds = generate_wordclouds_html(topics)
-#         logger.info(f"✅ Wordclouds generated. Number of wordclouds: {len(wordclouds) if wordclouds else 0}")
-        
-#         # Step 5: Generate HTML page
-#         logger.info("📄 Step 5: Generating HTML page...")
-#         html_page = generate_full_html_page(
-#             url=url_str,  # Pass string version
-#             wordclouds=wordclouds,
-#             topics=topics,
-#             num_documents=len(docs)
-#         )
-#         logger.info("✅ HTML page generation completed")
-        
-#         return HTMLResponse(content=html_page, status_code=200)
-        
-#     except Exception as e:
-#         # Log the full error details
-#         url_str = str(data.url) if hasattr(data, 'url') else 'unknown'
-#         logger.error(f"❌ Error processing URL {url_str}: {str(e)}")
-#         logger.error(f"Error type: {type(e).__name__}")
-#         import traceback
-#         logger.error(f"Full traceback: {traceback.format_exc()}")
-        
-#         error_html = f"""
-#         <!DOCTYPE html>
-#         <html>
-#         <head><title>Error</title></head>
-#         <body style="font-family: Arial; padding: 20px; text-align: center;">
-#             <h1>❌ Error Processing URL</h1>
-#             <p>Sorry, we couldn't process the URL: <strong>{url_str}</strong></p>
-#             <p><strong>Error:</strong> {str(e)}</p>
-#             <a href="/" style="color: #007bff;">← Try Another URL</a>
-#         </body>
-#         </html>
-#         """
-#         return HTMLResponse(content=error_html, status_code=400)
-
-# # Optional: Add a simple form page for URL input
-# @app.get("/", response_class=HTMLResponse)
-# async def home():
-#     return HTMLResponse(content="""
-#     <!DOCTYPE html>
-#     <html lang="en">
-#     <head>
-#         <meta charset="UTF-8">
-#         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-#         <title>Topic Analysis Tool</title>
-#         <style>
-#             body { 
-#                 font-family: 'Segoe UI', sans-serif; 
-#                 background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-#                 min-height: 100vh;
-#                 display: flex;
-#                 align-items: center;
-#                 justify-content: center;
-#                 margin: 0;
-#             }
-#             .form-container {
-#                 background: rgba(255, 255, 255, 0.95);
-#                 padding: 40px;
-#                 border-radius: 15px;
-#                 box-shadow: 0 20px 40px rgba(0,0,0,0.1);
-#                 backdrop-filter: blur(10px);
-#                 max-width: 500px;
-#                 width: 90%;
-#             }
-#             h1 { text-align: center; color: #2c3e50; margin-bottom: 30px; }
-#             input[type="url"] {
-#                 width: 100%;
-#                 padding: 15px;
-#                 border: 2px solid #e9ecef;
-#                 border-radius: 8px;
-#                 font-size: 16px;
-#                 margin-bottom: 20px;
-#                 box-sizing: border-box;
-#             }
-#             button {
-#                 width: 100%;
-#                 padding: 15px;
-#                 background: linear-gradient(45deg, #667eea, #764ba2);
-#                 color: white;
-#                 border: none;
-#                 border-radius: 8px;
-#                 font-size: 18px;
-#                 cursor: pointer;
-#                 transition: all 0.3s ease;
-#             }
-#             button:hover { transform: translateY(-2px); }
-#         </style>
-#     </head>
-#     <body>
-#         <div class="form-container">
-#             <h1>🔍 Topic Analysis Tool</h1>
-#             <form id="urlForm">
-#                 <input type="url" id="urlInput" placeholder="Enter URL to analyze..." required>
-#                 <button type="submit">Analyze Topics</button>
-#             </form>
-#         </div>
-        
-#         <script>
-#             document.getElementById('urlForm').addEventListener('submit', async (e) => {
-#                 e.preventDefault();
-#                 const url = document.getElementById('urlInput').value;
-#                 const button = e.target.querySelector('button');
-                
-#                 button.textContent = '🔄 Analyzing...';
-#                 button.disabled = true;
-                
-#                 try {
-#                     const response = await fetch('/process/', {
-#                         method: 'POST',
-#                         headers: {'Content-Type': 'application/json'},
-#                         body: JSON.stringify({url: url})
-#                     });
-                    
-#                     if (response.ok) {
-#                         const html = await response.text();
-#                         document.body.innerHTML = html;
-#                     } else {
-#                         throw new Error('Failed to analyze URL');
-#                     }
-#                 } catch (error) {
-#                     button.textContent = '❌ Error - Try Again';
-#                     button.disabled = false;
-#                     setTimeout(() => {
-#                         button.textContent = 'Analyze Topics';
-#                     }, 2000);
-#                 }
-#             });
-#         </script>
-#     </body>
-#     </html>
-#     """)
-
-# @app.post("/test/")
-# async def test_endpoint(data: URLRequest):
-#     return {"received_url": data.url}
-
+# Root endpoint
+@app.get("/")
+async def root():
+    """
+    API information
+    """
+    return {
+        "service": "URL Scraper API",
+        "version": "1.0.0",
+        "endpoints": {
+            "start_process": "POST /start-process/",
+            "check_status": "GET /status/{job_id}",
+            "get_result": "GET /result/{job_id}",
+            "health_check": "GET /health",
+            "list_jobs": "GET /jobs"
+        },
+        "docs": "/docs"
+    }
